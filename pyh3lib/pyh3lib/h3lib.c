@@ -1100,6 +1100,80 @@ static PyObject *h3lib_create_part_copy(PyObject* self, PyObject *args, PyObject
     Py_RETURN_TRUE;
 }
 
+static PyObject *h3lib_create_object_metadata(PyObject* self, PyObject *args, PyObject *kw) {
+    PyObject *capsule = NULL;
+    H3_Name bucketName;
+    H3_Name objectName;
+    H3_Name metadataName;
+    const char *metadataValue;
+    uint32_t userId = 0;
+
+    static char *kwlist[] = {"handle", "bucket_name", "object_name", "metadata_name", "metadata_value", "user_id", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "Osssy#|I", kwlist, &capsule, &bucketName, &objectName, &metadataName, &metadataValue, &userId))
+        return NULL;
+
+    H3_Handle handle = (H3_Handle)PyCapsule_GetPointer(capsule, NULL);
+    if (handle == NULL)
+        return NULL;
+    
+    H3_Auth auth;
+
+    auth.userId = userId;
+    if (did_raise_exception(H3_CreateObjectMetadata(handle, &auth, bucketName, objectName, metadataName, metadataValue)))
+        return NULL;
+
+    Py_RETURN_TRUE;
+}
+
+static PyObject *h3lib_delete_object_metadata(PyObject* self, PyObject *args, PyObject *kw) {
+    PyObject *capsule = NULL;
+    H3_Name bucketName;
+    H3_Name objectName;
+    H3_Name metadataName;
+    uint32_t userId = 0;
+
+    static char *kwlist[] = {"handle", "bucket_name", "object_name", "metadata_name", "user_id", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "Osss|I", kwlist, &capsule, &bucketName, &objectName, &metadataName, &userId))
+        return NULL;
+
+    H3_Handle handle = (H3_Handle)PyCapsule_GetPointer(capsule, NULL);
+    if (handle == NULL)
+        return NULL;
+
+    H3_Auth auth;
+
+    auth.userId = userId;
+    if (did_raise_exception(H3_DeleteObjectMetadata(handle, &auth, bucketName, objectName, metadataName)))
+        return NULL;
+
+    Py_RETURN_TRUE;
+}
+
+//TODO(dimos): Remove this function.
+static PyObject *h3lib_search_object_metadata(PyObject* self, PyObject *args, PyObject *kw) {
+    PyObject *capsule = NULL;
+    H3_Name bucketName;
+    H3_Name objectName;
+    H3_Name metadataName;
+    uint32_t userId = 0;
+
+    static char *kwlist[] = {"handle", "bucket_name", "object_name", "metadata_name", "user_id", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "Osss|I", kwlist, &capsule, &bucketName, &objectName, &metadataName, &userId))
+        return NULL;
+
+    H3_Handle handle = (H3_Handle)PyCapsule_GetPointer(capsule, NULL);
+    if (handle == NULL)
+        return NULL;
+
+    H3_Auth auth;
+
+    auth.userId = userId;
+    if (H3_SearchObjectMetadata(handle, &auth, bucketName, objectName, metadataName) == H3_EXISTS)
+        Py_RETURN_TRUE;
+
+    Py_RETURN_FALSE;
+}
+
 static PyMethodDef module_functions[] = {
     {"version",                 (PyCFunction)h3lib_version,                 METH_NOARGS, NULL},
     {"init",                    (PyCFunction)h3lib_init,                    METH_VARARGS|METH_KEYWORDS, NULL},
@@ -1128,6 +1202,10 @@ static PyMethodDef module_functions[] = {
     {"exchange_object",         (PyCFunction)h3lib_exchange_object,         METH_VARARGS|METH_KEYWORDS, NULL},
     {"truncate_object",         (PyCFunction)h3lib_truncate_object,         METH_VARARGS|METH_KEYWORDS, NULL},
     {"delete_object",           (PyCFunction)h3lib_delete_object,           METH_VARARGS|METH_KEYWORDS, NULL},
+    {"create_object_metadata",  (PyCFunction)h3lib_create_object_metadata,  METH_VARARGS|METH_KEYWORDS, NULL},
+    {"delete_object_metadata",  (PyCFunction)h3lib_delete_object_metadata,  METH_VARARGS|METH_KEYWORDS, NULL},
+    // TODO(dimos): Remove this line
+    {"search_object_metadata",  (PyCFunction)h3lib_search_object_metadata,  METH_VARARGS|METH_KEYWORDS, NULL},
 
     {"list_multiparts",         (PyCFunction)h3lib_list_multiparts,         METH_VARARGS|METH_KEYWORDS, NULL},
     {"create_multipart",        (PyCFunction)h3lib_create_multipart,        METH_VARARGS|METH_KEYWORDS, NULL},

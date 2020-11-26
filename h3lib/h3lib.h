@@ -27,8 +27,9 @@
 /** \defgroup Macros
  *  @{
  */
-#define H3_BUCKET_NAME_SIZE 64          //!< Maximum number of characters allowed for a bucket
-#define H3_OBJECT_NAME_SIZE 512         //!< Maximum number of characters allowed for an object
+#define H3_BUCKET_NAME_SIZE           64          //!< Maximum number of characters allowed for a bucket
+#define H3_OBJECT_NAME_SIZE           512         //!< Maximum number of characters allowed for an object
+#define H3_OBJECT_METADATA_NAME_SIZE  64          //!< Maximum number of characters allowed for an object's metadata name
 /** @}*/
 
 
@@ -179,6 +180,11 @@ H3_Status H3_MoveObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3
 H3_Status H3_ExchangeObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName);
 H3_Status H3_TruncateObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, size_t size);
 H3_Status H3_DeleteObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName);
+H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, H3_Name value);
+H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key);
+
+//TODO(dimos): Remove this function.
+H3_Status H3_SearchObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key);
 /** @}*/
 
 

@@ -325,3 +325,24 @@ def test_empty(h3):
     h3.delete_object('b1', 'o1')
 
     assert h3.delete_bucket('b1') == True
+
+def test_metadata(h3):
+    """Create, search and delete metadata to an empty object."""
+    
+    assert h3.list_buckets() == []
+
+    assert h3.create_bucket('b1') == True
+
+    h3.create_object('b1', 'o1', b'')
+
+    assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'') == True
+    #TODO(dimos): This is line is only for test purposes (remove it).
+    assert h3.search_object_metadata('b1', 'o1', 'testmeta') == True
+
+    assert h3.delete_object_metadata('b1', 'o1', 'testmeta') == True
+    #TODO(dimos): This is line is only for test purposes (remove it).
+    assert h3.search_object_metadata('b1', 'o1', 'testmeta') == False
+
+    h3.delete_object('b1', 'o1')
+
+    assert h3.delete_bucket('b1') == True

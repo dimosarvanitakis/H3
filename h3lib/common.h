@@ -60,6 +60,7 @@ typedef char H3_BucketId[H3_BUCKET_NAME_SIZE+2];
 typedef char H3_ObjectId[H3_BUCKET_NAME_SIZE + H3_OBJECT_NAME_SIZE + 1];
 typedef char H3_UUID[UUID_STR_LEN];
 typedef char H3_PartId[50];                                                 // '_' + UUID[36+1byte] + '#' + <part_number> + ['.' + <subpart_number>]
+typedef char H3_ObjectMetadataId[H3_BUCKET_NAME_SIZE + H3_OBJECT_NAME_SIZE + H3_OBJECT_METADATA_NAME_SIZE];
 
 typedef enum {
     H3_STORE_FILESYSTEM = 0,    // Mounted filesystem
@@ -129,6 +130,7 @@ int GetBucketId(H3_Name bucketName, H3_BucketId id);
 int GetBucketIndex(H3_UserMetadata* userMetadata, H3_Name bucketName);
 void GetObjectId(H3_Name bucketName, H3_Name objectName, H3_ObjectId id);
 void GetMultipartObjectId(H3_Name bucketName, H3_Name objectName, H3_ObjectId id);
+void GetObjectMetadataId(H3_ObjectMetadataId metadataId, H3_Name bucketName, H3_Name objectName, H3_Name metadataName);
 char* GetBucketFromId(H3_ObjectId objId, H3_BucketId bucketId);
 void InitMode(H3_ObjectMetadata* objMeta);
 H3_MultipartId GenerateMultipartId(uuid_t uuid);
