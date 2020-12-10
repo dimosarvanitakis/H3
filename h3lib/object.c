@@ -2232,6 +2232,7 @@ H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
             }
 
             clock_gettime(CLOCK_REALTIME, &objMeta->lastAccess);
+            clock_gettime(CLOCK_REALTIME, &objMeta->lastChange);
             if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS) {
                 status = H3_SUCCESS;
             } else { 
@@ -2313,6 +2314,7 @@ H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
             }
 
             clock_gettime(CLOCK_REALTIME, &objMeta->lastAccess);
+            clock_gettime(CLOCK_REALTIME, &objMeta->lastChange);
             if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS) {
                 status = H3_SUCCESS;
             } else { 

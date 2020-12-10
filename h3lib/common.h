@@ -60,7 +60,7 @@ typedef char H3_BucketId[H3_BUCKET_NAME_SIZE+2];
 typedef char H3_ObjectId[H3_BUCKET_NAME_SIZE + H3_OBJECT_NAME_SIZE + 1];
 typedef char H3_UUID[UUID_STR_LEN];
 typedef char H3_PartId[50];                                                 // '_' + UUID[36+1byte] + '#' + <part_number> + ['.' + <subpart_number>]
-typedef char H3_ObjectMetadataId[H3_BUCKET_NAME_SIZE + H3_OBJECT_NAME_SIZE + H3_OBJECT_METADATA_NAME_SIZE];
+typedef char H3_ObjectMetadataId[H3_BUCKET_NAME_SIZE + H3_OBJECT_NAME_SIZE + H3_OBJECT_METADATA_NAME_SIZE + 2];
 
 typedef enum {
     H3_STORE_FILESYSTEM = 0,    // Mounted filesystem
