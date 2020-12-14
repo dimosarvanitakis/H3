@@ -2218,11 +2218,11 @@ H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
         if (GrantObjectAccess(userId, objMeta)) {
         	GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
             //Store it if not exists
-            if ((storeStatus = op->create(_handle, objectMetaId, (KV_Value)value, strlen(value) + 1)) == KV_SUCCESS) {
+            if ((storeStatus = op->create(_handle, objectMetaId, (KV_Value)value, strlen(value))) == KV_SUCCESS) {
                 status = H3_SUCCESS;
             //Otherwise update 
             } else if(storeStatus == KV_KEY_EXIST) {
-                if ((storeStatus = op->update(_handle, objectMetaId, (KV_Value)value, 0, strlen(value) + 1)) == KV_SUCCESS) {
+                if ((storeStatus = op->update(_handle, objectMetaId, (KV_Value)value, 0, strlen(value))) == KV_SUCCESS) {
                     status = H3_SUCCESS;
                 } else {
                     status = H3_FAILURE;
@@ -2331,6 +2331,74 @@ H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
     return status;
 }
 
+H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, H3_Name* value, size_t* size){
+    if (!handle || !token  || !bucketName || !objectName || !key) {
+        return H3_INVALID_ARGS;
+    }
+
+    H3_Status status;
+    H3_Context* ctx = (H3_Context*)handle;
+    KV_Handle _handle = ctx->handle;
+    KV_Operations* op = ctx->operation;
+
+    H3_UserId userId;
+    H3_ObjectId objId;
+    H3_ObjectMetadataId objectMetaId;
+    KV_Value objMetaValue = NULL;
+    KV_Status storeStatus;
+    size_t mSize = 0;
+
+    // Validate bucketName & extract userId from token
+    // TODO(dimos): maybe validate the object's metadata name/key
+    if ((status = ValidBucketName(op, bucketName)) != H3_SUCCESS || (status = ValidObjectName(op, objectName)) != H3_SUCCESS) {
+        return status;
+    }
+
+    if (!GetUserId(token, userId)) {
+        return H3_INVALID_ARGS;
+    }
+
+    status = H3_FAILURE;
+    GetObjectId(bucketName, objectName, objId);
+    if ((storeStatus = op->metadata_read(_handle, objId, 0, &objMetaValue, &mSize)) == KV_SUCCESS) {
+        H3_ObjectMetadata* objMeta = (H3_ObjectMetadata*)objMetaValue;
+        // User has access, the object is healthy and the offset is reasonable
+        if (GrantObjectAccess(userId, objMeta)) {
+            size_t readSize;
+            // We do not reserve memory, the backend will handle it (I hope :))
+            // TODO(dimos) : it seems that the redis and rocksdb have this "feature", check the kreon too.
+            KV_Value metadataValue;
+
+        	GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
+            // Read the metadata value
+            if ((storeStatus = op->read(_handle, objectMetaId, 0, &metadataValue, &readSize)) == KV_SUCCESS) {    
+                *value = (H3_Name)metadataValue;
+                *size  = readSize;
+            
+                status = H3_SUCCESS;
+            } else if (storeStatus == KV_KEY_NOT_EXIST) {
+                status = H3_NOT_EXISTS;
+            } else {
+                status = H3_FAILURE;
+            }
+
+            clock_gettime(CLOCK_REALTIME, &objMeta->lastAccess);
+            if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS) {
+                status = H3_SUCCESS;
+            } else { 
+                status = H3_FAILURE;
+            }
+        }
+        free(objMeta);
+    } else if (storeStatus == KV_KEY_NOT_EXIST) {
+        return H3_NOT_EXISTS;
+    } else {
+        return H3_FAILURE;
+    }
+
+    return status;
+}
+
 H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name key, H3_Name* objectNameArray, uint32_t* nObjects) {
     if (!handle || !token  || !bucketName || !key || !objectNameArray || !nObjects) {
         return H3_INVALID_ARGS;
@@ -2397,18 +2465,19 @@ H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name b
                     }
                 }
                 *objectNameArray = keyBuffer;
-                *nObjects = addedObjects;      
+                *nObjects = addedObjects;    
+
+                status = H3_SUCCESS;  
             } else {
                 free(keyBuffer);
             }
         }
         free(bucketMetadata);
-    }
-    else if(storeStatus == KV_KEY_NOT_EXIST)
+    } else if (storeStatus == KV_KEY_NOT_EXIST) {
         return H3_NOT_EXISTS;
-
-    else if(storeStatus == KV_KEY_TOO_LONG)
+    } else if (storeStatus == KV_KEY_TOO_LONG) {
         return H3_NAME_TOO_LONG;
+    }
 
     return status;
 }
