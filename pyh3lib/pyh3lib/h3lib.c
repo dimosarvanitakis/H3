@@ -1149,31 +1149,6 @@ static PyObject *h3lib_delete_object_metadata(PyObject* self, PyObject *args, Py
     Py_RETURN_TRUE;
 }
 
-//TODO(dimos): Remove this function.
-static PyObject *h3lib_search_object_metadata(PyObject* self, PyObject *args, PyObject *kw) {
-    PyObject *capsule = NULL;
-    H3_Name bucketName;
-    H3_Name objectName;
-    H3_Name metadataName;
-    uint32_t userId = 0;
-
-    static char *kwlist[] = {"handle", "bucket_name", "object_name", "metadata_name", "user_id", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kw, "Osss|I", kwlist, &capsule, &bucketName, &objectName, &metadataName, &userId))
-        return NULL;
-
-    H3_Handle handle = (H3_Handle)PyCapsule_GetPointer(capsule, NULL);
-    if (handle == NULL)
-        return NULL;
-
-    H3_Auth auth;
-
-    auth.userId = userId;
-    if (H3_SearchObjectMetadata(handle, &auth, bucketName, objectName, metadataName) == H3_EXISTS)
-        Py_RETURN_TRUE;
-
-    Py_RETURN_FALSE;
-}
-
 static PyMethodDef module_functions[] = {
     {"version",                 (PyCFunction)h3lib_version,                 METH_NOARGS, NULL},
     {"init",                    (PyCFunction)h3lib_init,                    METH_VARARGS|METH_KEYWORDS, NULL},
@@ -1204,9 +1179,6 @@ static PyMethodDef module_functions[] = {
     {"delete_object",           (PyCFunction)h3lib_delete_object,           METH_VARARGS|METH_KEYWORDS, NULL},
     {"create_object_metadata",  (PyCFunction)h3lib_create_object_metadata,  METH_VARARGS|METH_KEYWORDS, NULL},
     {"delete_object_metadata",  (PyCFunction)h3lib_delete_object_metadata,  METH_VARARGS|METH_KEYWORDS, NULL},
-    // TODO(dimos): Remove this line
-    {"search_object_metadata",  (PyCFunction)h3lib_search_object_metadata,  METH_VARARGS|METH_KEYWORDS, NULL},
-
     {"list_multiparts",         (PyCFunction)h3lib_list_multiparts,         METH_VARARGS|METH_KEYWORDS, NULL},
     {"create_multipart",        (PyCFunction)h3lib_create_multipart,        METH_VARARGS|METH_KEYWORDS, NULL},
     {"complete_multipart",      (PyCFunction)h3lib_complete_multipart,      METH_VARARGS|METH_KEYWORDS, NULL},

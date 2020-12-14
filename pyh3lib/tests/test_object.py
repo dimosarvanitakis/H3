@@ -336,12 +336,8 @@ def test_metadata(h3):
     h3.create_object('b1', 'o1', b'')
 
     assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'') == True
-    #TODO(dimos): This is line is only for test purposes (remove it).
-    assert h3.search_object_metadata('b1', 'o1', 'testmeta') == True
 
     assert h3.delete_object_metadata('b1', 'o1', 'testmeta') == True
-    #TODO(dimos): This is line is only for test purposes (remove it).
-    assert h3.search_object_metadata('b1', 'o1', 'testmeta') == False
 
     h3.delete_object('b1', 'o1')
 

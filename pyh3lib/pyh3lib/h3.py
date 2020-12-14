@@ -473,22 +473,7 @@ class H3(object, metaclass=H3Version):
         """
 
         return h3lib.delete_object_metadata(self._handle, bucket_name, object_name, metadata_name, self._user_id)
-    
-    def search_object_metadata(self, bucket_name, object_name, metadata_name):
-        """Search if an object has a specific metadata.
-
-        :param bucket_name: the bucket name
-        :param object_name: the object name
-        :param metadata_name: the object's metadata name
-        :type bucket_name: string
-        :type object_name: string
-        :type metadata_name: string
-        :returns: ``True`` if the object exists
-        :returns: ``False`` if the object does not exist
-        """
-
-        return h3lib.search_object_metadata(self._handle, bucket_name, object_name, metadata_name, self._user_id)
-
+        
     def list_multiparts(self, bucket_name, offset=0, count=10000):
         """List all multipart IDs for a bucket.
 

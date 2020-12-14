@@ -2482,34 +2482,3 @@ H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name b
     return status;
 }
 
-//TODO(dimos): Remove this function.
-H3_Status H3_SearchObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key) {
-    if (!handle || !token  || !bucketName || !objectName || !key) {
-        return H3_INVALID_ARGS;
-    }
-
-    H3_Status status;
-    H3_Context* ctx = (H3_Context*)handle;
-    KV_Handle _handle = ctx->handle;
-    KV_Operations* op = ctx->operation;
-
-    H3_ObjectMetadataId objectMetaId;
-    KV_Status storeStatus;
-
-    // Validate bucketName & extract userId from token
-    if ((status = ValidBucketName(op, bucketName)) != H3_SUCCESS || (status = ValidObjectName(op, objectName)) != H3_SUCCESS) {
-        return status;
-    }
-
-    GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
-    
-    status = H3_FAILURE;
-    if ((storeStatus = op->exists(_handle, key)) == KV_KEY_EXIST) {
-        status = H3_EXISTS;
-    } else if (storeStatus == KV_KEY_NOT_EXIST) {
-        status = H3_NOT_EXISTS;
-    }
-
-    return status;
-}
-
