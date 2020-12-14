@@ -337,7 +337,13 @@ def test_metadata(h3):
 
     assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'') == True
 
+    assert h3.list_objects_with_metadata('b1', 'testmeta') == ['o1']
+
+    assert h3.read_object_metadata('b1', 'o1', 'testmeta') == b''
+    
     assert h3.delete_object_metadata('b1', 'o1', 'testmeta') == True
+
+    assert h3.list_objects_with_metadata('b1', 'testmeta') == []
 
     h3.delete_object('b1', 'o1')
 

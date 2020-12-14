@@ -473,7 +473,37 @@ class H3(object, metaclass=H3Version):
         """
 
         return h3lib.delete_object_metadata(self._handle, bucket_name, object_name, metadata_name, self._user_id)
-        
+    
+    def read_object_metadata(self, bucket_name, object_name, metadata_name):
+        """Delete an object's specific metadata.
+
+        :param bucket_name: the bucket name
+        :param object_name: the object name
+        :param metadata_name: the object's metadata name
+        :type bucket_name: string
+        :type object_name: string
+        :type metadata_name: string
+        :returns: An H3Bytes object if the call was successful
+        """
+
+        data, done = h3lib.read_object_metadata(self._handle, bucket_name, object_name, metadata_name, self._user_id)
+        if data is None:
+            data = b''
+        return H3Bytes(data, done=done)
+    
+    def list_objects_with_metadata(self, bucket_name, metadata_name):
+        """Delete an object's specific metadata.
+
+        :param bucket_name: the bucket name
+        :param metadata_name: metadata name
+        :type bucket_name: string
+        :type metadata_name: string
+        :returns: An H3List of object names if the call was successful
+        """
+
+        objects, done = h3lib.list_objects_with_metadata(self._handle, bucket_name, metadata_name, self._user_id)
+        return H3List(objects, done=done)
+
     def list_multiparts(self, bucket_name, offset=0, count=10000):
         """List all multipart IDs for a bucket.
 

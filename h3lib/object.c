@@ -2365,9 +2365,8 @@ H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucket
         // User has access, the object is healthy and the offset is reasonable
         if (GrantObjectAccess(userId, objMeta)) {
             size_t readSize;
-            // We do not reserve memory, the backend will handle it (I hope :))
-            // TODO(dimos) : it seems that the redis and rocksdb have this "feature", check the kreon too.
-            KV_Value metadataValue;
+            // We do not reserve memory, the backend will handle it.
+            KV_Value metadataValue = NULL;
 
         	GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
             // Read the metadata value
@@ -2439,6 +2438,7 @@ H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name b
     
             KV_Key keyBuffer = calloc(1, KV_LIST_BUFFER_SIZE);
             if (keyBuffer) {
+                memset(keyBuffer, 0, KV_LIST_BUFFER_SIZE);
 
                 H3_Name  current_object_name;
                 uint32_t object;
@@ -2458,8 +2458,9 @@ H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name b
 
                     if ((storeStatus = op->exists(_handle, objectMetaId)) == KV_KEY_EXIST) {  
                         if (remaining >= current_object_len) {
-                            memcpy(&keyBuffer[KV_LIST_BUFFER_SIZE - remaining], &current_object_name, current_object_len);
-                            remaining -= current_object_len;
+                            // We copy and the null terminator character 
+                            memcpy(&keyBuffer[KV_LIST_BUFFER_SIZE - remaining], current_object_name, current_object_len + 1);
+                            remaining -= (current_object_len + 1);
                             addedObjects++;
                         } 
                     }
@@ -2468,8 +2469,6 @@ H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name b
                 *nObjects = addedObjects;    
 
                 status = H3_SUCCESS;  
-            } else {
-                free(keyBuffer);
             }
         }
         free(bucketMetadata);
