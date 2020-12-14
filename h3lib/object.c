@@ -2218,11 +2218,11 @@ H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
         if (GrantObjectAccess(userId, objMeta)) {
         	GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
             //Store it if not exists
-            if ((storeStatus = op->create(_handle, key, (KV_Value)value, strlen(value) + 1)) == KV_SUCCESS) {
+            if ((storeStatus = op->create(_handle, objectMetaId, (KV_Value)value, strlen(value) + 1)) == KV_SUCCESS) {
                 status = H3_SUCCESS;
             //Otherwise update 
             } else if(storeStatus == KV_KEY_EXIST) {
-                if ((storeStatus = op->update(_handle, key, (KV_Value)value, 0, strlen(value) + 1)) == KV_SUCCESS) {
+                if ((storeStatus = op->update(_handle, objectMetaId, (KV_Value)value, 0, strlen(value) + 1)) == KV_SUCCESS) {
                     status = H3_SUCCESS;
                 } else {
                     status = H3_FAILURE;
@@ -2301,8 +2301,8 @@ H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
         if (GrantObjectAccess(userId, objMeta)) {
         	GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
             //Delete it iff exists
-            if ((storeStatus = op->exists(_handle, key)) == KV_KEY_EXIST) {
-                if ((storeStatus = op->delete(_handle, key)) == KV_SUCCESS) {
+            if ((storeStatus = op->exists(_handle, objectMetaId)) == KV_KEY_EXIST) {
+                if ((storeStatus = op->delete(_handle, objectMetaId)) == KV_SUCCESS) {
                     status = H3_SUCCESS;
                 } else {
                     status = H3_FAILURE;
@@ -2327,6 +2327,88 @@ H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
     } else {
         return H3_FAILURE;
     }
+
+    return status;
+}
+
+H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name key, H3_Name* objectNameArray, uint32_t* nObjects) {
+    if (!handle || !token  || !bucketName || !key || !objectNameArray || !nObjects) {
+        return H3_INVALID_ARGS;
+    }
+
+    H3_Status status;
+    H3_Context* ctx = (H3_Context*)handle;
+    KV_Handle _handle = ctx->handle;
+    KV_Operations* op = ctx->operation;
+
+    H3_BucketId bucketId;
+    H3_UserId userId;
+    H3_ObjectMetadataId objectMetaId;
+    KV_Status storeStatus;
+    KV_Value value = NULL;
+    size_t mSize = 0;
+
+    // Validate bucketName & extract userId from token
+    if ((status = ValidBucketName(op, bucketName)) != H3_SUCCESS) {
+        return status;
+    }
+
+    if (!GetUserId(token, userId) || !GetBucketId(bucketName, bucketId)) {
+        return H3_INVALID_ARGS;
+    }
+       
+    status = H3_FAILURE;
+    if( (storeStatus = op->metadata_read(_handle, bucketId, 0, &value, &mSize)) == KV_SUCCESS){
+
+        H3_BucketMetadata* bucketMetadata = (H3_BucketMetadata*)value;
+        if (GrantBucketAccess(userId, bucketMetadata)) {
+
+            H3_Name objects = NULL;
+            uint32_t nOfObjects;
+            if ((status = H3_ListObjects(handle, token, bucketName, NULL, 0, &objects, &nOfObjects) != H3_SUCCESS)) {
+                return status;
+            }
+    
+            KV_Key keyBuffer = calloc(1, KV_LIST_BUFFER_SIZE);
+            if (keyBuffer) {
+
+                H3_Name  current_object_name;
+                uint32_t object;
+                uint32_t current_objects_index = 0;
+                size_t  current_object_len;
+                size_t remaining = KV_LIST_BUFFER_SIZE;
+                uint32_t addedObjects = 0;
+                for (object = 0; object < nOfObjects; ++object) {
+                    
+                    current_object_name = &(objects[current_objects_index]);
+                    current_object_len  = strlen(current_object_name);
+                    current_objects_index += current_object_len;
+                    while (objects[current_objects_index] == '\0')
+                        current_objects_index++;
+                    
+                    GetObjectMetadataId(objectMetaId, bucketName, current_object_name, key);
+
+                    if ((storeStatus = op->exists(_handle, objectMetaId)) == KV_KEY_EXIST) {  
+                        if (remaining >= current_object_len) {
+                            memcpy(&keyBuffer[KV_LIST_BUFFER_SIZE - remaining], &current_object_name, current_object_len);
+                            remaining -= current_object_len;
+                            addedObjects++;
+                        } 
+                    }
+                }
+                *objectNameArray = keyBuffer;
+                *nObjects = addedObjects;      
+            } else {
+                free(keyBuffer);
+            }
+        }
+        free(bucketMetadata);
+    }
+    else if(storeStatus == KV_KEY_NOT_EXIST)
+        return H3_NOT_EXISTS;
+
+    else if(storeStatus == KV_KEY_TOO_LONG)
+        return H3_NAME_TOO_LONG;
 
     return status;
 }
