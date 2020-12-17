@@ -335,15 +335,19 @@ def test_metadata(h3):
 
     h3.create_object('b1', 'o1', b'')
 
-    assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'') == True
+    assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'', 0) == True
 
-    assert h3.list_objects_with_metadata('b1', 'testmeta') == ['o1']
+    assert h3.create_object_metadata('b1', 'o1', 'read_only', (258).to_bytes(4, byteorder='little'), 4) == True
+
+    assert int.from_bytes(h3.read_object_metadata('b1', 'o1', 'read_only'), byteorder='little') == 258
 
     assert h3.read_object_metadata('b1', 'o1', 'testmeta') == b''
     
     assert h3.delete_object_metadata('b1', 'o1', 'testmeta') == True
 
     assert h3.list_objects_with_metadata('b1', 'testmeta') == []
+
+    assert h3.list_objects_with_metadata('b1', 'read_only') == ['o1']
 
     h3.delete_object('b1', 'o1')
 

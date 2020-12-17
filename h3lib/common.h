@@ -109,6 +109,7 @@ typedef struct{
     struct timespec lastAccess;				// Access - the last time the file was read
     struct timespec lastModification;		// Modify - the last time the file was modified (content has been modified)
     struct timespec lastChange;				// Change - the last time meta data of the file was changed (e.g. permissions)
+    int32_t readOnly;                       //!< The object is read only (used by the h3controllers)
     mode_t mode;
     uid_t uid;
     gid_t gid;

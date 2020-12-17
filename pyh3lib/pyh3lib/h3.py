@@ -219,6 +219,18 @@ class H3(object, metaclass=H3Version):
         """
 
         return h3lib.set_object_permissions(self._handle, bucket_name, object_name, mode, self._user_id)
+    
+    def make_object_read_only(self, bucket_name, object_name):
+        """Set object permissions attribute (used by h3fuse).
+
+        :param bucket_name: the bucket name
+        :param object_name: the object name
+        :type bucket_name: string
+        :type object_name: string
+        :returns: ``True`` if the call was successful
+        """
+
+        return h3lib.make_object_read_only(self._handle, bucket_name, object_name, self._user_id)
 
     def set_object_owner(self, bucket_name, object_name, uid, gid):
         """Set object owner attribute (used by h3fuse).
@@ -444,21 +456,23 @@ class H3(object, metaclass=H3Version):
 
         return h3lib.delete_object(self._handle, bucket_name, object_name, self._user_id)
     
-    def create_object_metadata(self, bucket_name, object_name, metadata_name, metadata_value):
-        """Create a new metadata for an object.
+    def create_object_metadata(self, bucket_name, object_name, metadata_name, metadata_value, size):
+        # """Create a new metadata for an object.
 
-        :param bucket_name: the bucket name
-        :param object_name: the object name
-        :param metadata_name: the object's metadata name
-        :param metadata_value: the object's metadata value
-        :type bucket_name: string
-        :type object_name: string
-        :type metadata_name: string
-        :type metadata_value: bytes
-        :returns: ``True`` if the call was successful
-        """
+        # :param bucket_name: the bucket name
+        # :param object_name: the object name
+        # :param metadata_name: the object's metadata name
+        # :param metadata_value: the object's metadata value
+        # :param size: the size of the object's metadata value
+        # :type bucket_name: string
+        # :type object_name: string
+        # :type metadata_name: string
+        # :type metadata_value: bytes
+        # :type size: int
+        # :returns: ``True`` if the call was successful
+        # """
 
-        return h3lib.create_object_metadata(self._handle, bucket_name, object_name, metadata_name, metadata_value, self._user_id)
+        return h3lib.create_object_metadata(self._handle, bucket_name, object_name, metadata_name, metadata_value, size, self._user_id)
 
     def delete_object_metadata(self, bucket_name, object_name, metadata_name):
         """Delete an object's specific metadata.

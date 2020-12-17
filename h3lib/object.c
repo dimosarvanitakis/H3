@@ -365,6 +365,7 @@ H3_Status H3_CreateObject(H3_Handle handle, H3_Token token, H3_Name bucketName, 
         memcpy(objMeta->userId, userId, sizeof(H3_UserId));
         uuid_generate(objMeta->uuid);
         InitMode(objMeta);
+        objMeta->readOnly = 0;
 
         // Reserve object
         if( (storeStatus = op->metadata_create(_handle, objId, (KV_Value)objMeta, objMetaSize)) == KV_SUCCESS){
@@ -462,6 +463,7 @@ H3_Status H3_CreateObjectFromFile(H3_Handle handle, H3_Token token, H3_Name buck
         memcpy(objMeta->userId, userId, sizeof(H3_UserId));
         uuid_generate(objMeta->uuid);
         InitMode(objMeta);
+        objMeta->readOnly = 0;
 
         // Reserve object
         if( (storeStatus = op->metadata_create(_handle, objId, (KV_Value)objMeta, objMetaSize)) == KV_SUCCESS){
@@ -569,6 +571,7 @@ H3_Status H3_CreateDummyObject(H3_Handle handle, H3_Token token, H3_Name bucketN
         memcpy(objMeta->userId, userId, sizeof(H3_UserId));
         uuid_generate(objMeta->uuid);
         InitMode(objMeta);
+        objMeta->readOnly = 0;
 
         // Reserve object
         if( (storeStatus = op->metadata_create(_handle, objId, (KV_Value)objMeta, objMetaSize)) == KV_SUCCESS){
@@ -965,6 +968,7 @@ H3_Status H3_InfoObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3
             objectInfo->lastAccess = objMeta->lastAccess;
             objectInfo->lastModification = objMeta->lastModification;
             objectInfo->lastChange = objMeta->lastChange;
+            objectInfo->readOnly = objMeta->readOnly;
             objectInfo->mode = objMeta->mode;
             objectInfo->uid = objMeta->uid;
             objectInfo->gid = objMeta->gid;
@@ -1119,9 +1123,12 @@ H3_Status H3_SetObjectAttributes(H3_Handle handle, H3_Token token, H3_Name bucke
         H3_ObjectMetadata* objMeta = (H3_ObjectMetadata*)value;
         if(GrantObjectAccess(userId, objMeta)){
 
-            if(attrib.type == H3_ATTRIBUTE_PERMISSIONS)
+            if(attrib.type == H3_ATTRIBUTE_PERMISSIONS) {
                 objMeta->mode = attrib.mode & 0777;
-            else {
+            } else if (attrib.type == H3_ATTRIBUTE_READ_ONLY && !objMeta->readOnly) {
+                objMeta->readOnly = attrib.readOnly;
+                //TODO(dimos) : change the mode to 444 also??
+            } else {
                 if(attrib.uid >= 0) objMeta->uid = attrib.uid;
                 if(attrib.gid >= 0) objMeta->gid = attrib.gid;
             }
@@ -2183,7 +2190,8 @@ H3_Status H3_WriteObjectCopy(H3_Handle handle, H3_Token token, H3_Name bucketNam
  * @result \b H3_NAME_TOO_LONG      Bucket or Object name is longer than H3_BUCKET_NAME_SIZE or H3_OBJECT_NAME_SIZE respectively
  *
  */
-H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, H3_Name value) {
+H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, void* value, size_t size) {
+    // We don't care if the size == 0.
     if (!handle || !token  || !bucketName || !objectName || !key || !value) {
         return H3_INVALID_ARGS;
     }
@@ -2218,11 +2226,11 @@ H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
         if (GrantObjectAccess(userId, objMeta)) {
         	GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
             //Store it if not exists
-            if ((storeStatus = op->create(_handle, objectMetaId, (KV_Value)value, strlen(value))) == KV_SUCCESS) {
+            if ((storeStatus = op->create(_handle, objectMetaId, (KV_Value)value, size)) == KV_SUCCESS) {
                 status = H3_SUCCESS;
             //Otherwise update 
             } else if(storeStatus == KV_KEY_EXIST) {
-                if ((storeStatus = op->update(_handle, objectMetaId, (KV_Value)value, 0, strlen(value))) == KV_SUCCESS) {
+                if ((storeStatus = op->update(_handle, objectMetaId, (KV_Value)value, 0, size)) == KV_SUCCESS) {
                     status = H3_SUCCESS;
                 } else {
                     status = H3_FAILURE;
@@ -2331,7 +2339,7 @@ H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
     return status;
 }
 
-H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, H3_Name* value, size_t* size){
+H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, void** value, size_t* size){
     if (!handle || !token  || !bucketName || !objectName || !key) {
         return H3_INVALID_ARGS;
     }

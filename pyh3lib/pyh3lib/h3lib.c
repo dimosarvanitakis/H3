@@ -20,7 +20,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <string.h>
 
+#define TRUE 1
 #define TIMESPEC_TO_DOUBLE(t) (t.tv_sec + ((double)t.tv_nsec / 1000000000ULL))
 
 // Named tuples returned
@@ -444,6 +446,33 @@ static PyObject *h3lib_touch_object(PyObject* self, PyObject *args, PyObject *kw
         modificationTime.tv_nsec = (lastModification - modificationTime.tv_sec) * 1000000000ULL;
     }
     if (did_raise_exception(H3_TouchObject(handle, &auth, bucketName, objectName, (lastAccess >= 0 ? &accessTime : NULL), (lastModification >= 0 ? &modificationTime : NULL))))
+        return NULL;
+
+    Py_RETURN_TRUE;
+}
+
+static PyObject *h3lib_make_object_read_only(PyObject* self, PyObject *args, PyObject *kw) {
+    PyObject *capsule = NULL;
+    H3_Name bucketName;
+    H3_Name objectName;
+    int mode;
+    uint32_t userId = 0;
+
+    static char *kwlist[] = {"handle", "bucket_name", "object_name", "user_id", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "OssI", kwlist, &capsule, &bucketName, &objectName, &userId))
+        return NULL;
+
+    H3_Handle handle = (H3_Handle)PyCapsule_GetPointer(capsule, NULL);
+    if (handle == NULL)
+        return NULL;
+
+    H3_Auth auth;
+    H3_Attribute attribute;
+
+    auth.userId = userId;
+    attribute.type = H3_ATTRIBUTE_READ_ONLY;
+    attribute.readOnly = TRUE;
+    if (did_raise_exception(H3_SetObjectAttributes(handle, &auth, bucketName, objectName, attribute)))
         return NULL;
 
     Py_RETURN_TRUE;
@@ -1107,11 +1136,13 @@ static PyObject *h3lib_create_object_metadata(PyObject* self, PyObject *args, Py
     H3_Name objectName;
     H3_Name metadataName;
     const char *metadataValue;
+    size_t size = 0;
     uint32_t userId = 0;
 
-    static char *kwlist[] = {"handle", "bucket_name", "object_name", "metadata_name", "metadata_value", "user_id", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kw, "Osssy#|I", kwlist, &capsule, &bucketName, &objectName, &metadataName, &metadataValue, &userId))
+    static char *kwlist[] = {"handle", "bucket_name", "object_name", "metadata_name", "metadata_value", "size", "user_id", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "Osssy#k|I", kwlist, &capsule, &bucketName, &objectName, &metadataName, &metadataValue, &size, &userId)) {
         return NULL;
+    }
 
     H3_Handle handle = (H3_Handle)PyCapsule_GetPointer(capsule, NULL);
     if (handle == NULL)
@@ -1120,7 +1151,7 @@ static PyObject *h3lib_create_object_metadata(PyObject* self, PyObject *args, Py
     H3_Auth auth;
 
     auth.userId = userId;
-    if (did_raise_exception(H3_CreateObjectMetadata(handle, &auth, bucketName, objectName, metadataName, metadataValue)))
+    if (did_raise_exception(H3_CreateObjectMetadata(handle, &auth, bucketName, objectName, metadataName, (void*)metadataValue, size)))
         return NULL;
 
     Py_RETURN_TRUE;
@@ -1166,7 +1197,7 @@ static PyObject *h3lib_read_object_metadata(PyObject* self, PyObject *args, PyOb
         return NULL;
 
     H3_Auth auth;
-    H3_Name metadataValue = NULL;
+    void* metadataValue = NULL;
     size_t size = 0;
 
     auth.userId = userId;
@@ -1237,6 +1268,7 @@ static PyMethodDef module_functions[] = {
     {"info_object",                 (PyCFunction)h3lib_info_object,                 METH_VARARGS|METH_KEYWORDS, NULL},
     {"touch_object",                (PyCFunction)h3lib_touch_object,                METH_VARARGS|METH_KEYWORDS, NULL},
     {"set_object_permissions",      (PyCFunction)h3lib_set_object_permissions,      METH_VARARGS|METH_KEYWORDS, NULL},
+    {"make_object_read_only",       (PyCFunction)h3lib_make_object_read_only,       METH_VARARGS|METH_KEYWORDS, NULL},
     {"set_object_owner",            (PyCFunction)h3lib_set_object_owner,            METH_VARARGS|METH_KEYWORDS, NULL},
     {"create_object",               (PyCFunction)h3lib_create_object,               METH_VARARGS|METH_KEYWORDS, NULL},
     {"create_object_copy",          (PyCFunction)h3lib_create_object_copy,          METH_VARARGS|METH_KEYWORDS, NULL},

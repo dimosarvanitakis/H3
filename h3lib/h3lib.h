@@ -64,6 +64,7 @@ typedef enum {
 typedef enum {
     H3_ATTRIBUTE_PERMISSIONS = 0,   //!< Permissions attribute
     H3_ATTRIBUTE_OWNER,             //!< Owner attributes
+    H3_ATTRIBUTE_READ_ONLY,         //!< Read only attribute
     H3_NumOfAttributes              //!< Not an option, used for iteration purposes
 }H3_AttributeType;
 
@@ -102,6 +103,7 @@ typedef struct {
     struct timespec lastAccess;             //!< The last time the object was read
     struct timespec lastModification;       //!< The last time the object was modified (content has been modified)
     struct timespec lastChange;             //!< The last time the object's attributes were changed (e.g. permissions)
+    int32_t readOnly;                       //!< The object is read only (used by the h3controllers)
     mode_t mode;                            //!< File type and mode (used by h3fuse)
     uid_t uid;                              //!< User ID (used by h3fuse)
     gid_t gid;                              //!< Group ID (used by h3fuse)
@@ -124,6 +126,7 @@ typedef struct {
             uid_t uid;      //!< User ID, adhering to chown() semantics
             gid_t gid;      //!< Group ID, adhering to chown() semantics
         };
+        int32_t readOnly;   //!< This is used for the controllers, it is different from the mode  
     };
 }H3_Attribute;
 
@@ -180,9 +183,9 @@ H3_Status H3_MoveObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3
 H3_Status H3_ExchangeObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName);
 H3_Status H3_TruncateObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, size_t size);
 H3_Status H3_DeleteObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName);
-H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, H3_Name value);
+H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, void* value, size_t size);
 H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key);
-H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, H3_Name* matadata, size_t* size);
+H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, void** matadata, size_t* size);
 H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name key, H3_Name* objectNameArray, uint32_t* nObjects);
 /** @}*/
 
