@@ -133,6 +133,7 @@ void GetObjectId(H3_Name bucketName, H3_Name objectName, H3_ObjectId id);
 void GetMultipartObjectId(H3_Name bucketName, H3_Name objectName, H3_ObjectId id);
 void GetObjectMetadataId(H3_ObjectMetadataId metadataId, H3_Name bucketName, H3_Name objectName, H3_Name metadataName);
 char* GetBucketFromId(H3_ObjectId objId, H3_BucketId bucketId);
+void GetBucketAndObjectFromId(H3_Name* bucketName, H3_Name* objectName, H3_ObjectId id);
 void InitMode(H3_ObjectMetadata* objMeta);
 H3_MultipartId GenerateMultipartId(uuid_t uuid);
 void CreatePartId(H3_PartId partId, uuid_t uuid, int partNumber, int subPartNumber);
@@ -145,3 +146,8 @@ H3_Status DeleteObject(H3_Context* ctx, H3_UserId userId, H3_ObjectId objId, cha
 KV_Status WriteData(H3_Context* ctx, H3_ObjectMetadata* meta, KV_Value value, size_t size, off_t offset);
 KV_Status ReadData(H3_Context* ctx, H3_ObjectMetadata* meta, KV_Value value, size_t* size, off_t offset);
 KV_Status CopyData(H3_Context* ctx, H3_UserId userId, H3_ObjectId srcObjId, H3_ObjectId dstObjId, off_t srcOffset, size_t* size, uint8_t noOverwrite, off_t dstOffset);
+H3_Status CreateObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName, H3_Name key, void* value, size_t size);
+H3_Status ReadObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName, H3_Name key, void** value, size_t* size);
+H3_Status DeleteObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName, H3_Name key);
+H3_Status PurgeObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName);
+H3_Status CopyObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName);

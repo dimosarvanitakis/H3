@@ -121,6 +121,21 @@ char* GetBucketFromId(H3_ObjectId objId, H3_BucketId bucketId){
     return bucketId;
 }
 
+void GetBucketAndObjectFromId(H3_Name* bucketName, H3_Name* objectName, H3_ObjectId id) {
+    char* marker = strchr(id, '/');
+    if (marker) {
+        size_t bucketNameSize = marker - id;
+
+        *bucketName = (H3_Name)calloc(1, bucketNameSize);
+        memcpy(*bucketName, id, bucketNameSize);
+        (*bucketName)[bucketNameSize] = '\0';
+
+        *objectName = (H3_Name)calloc(1, H3_OBJECT_NAME_SIZE);
+        memcpy(*objectName, marker + 1, H3_OBJECT_NAME_SIZE);
+        (*objectName)[H3_OBJECT_NAME_SIZE] = '\0';
+    }
+} 
+
 
 int GetBucketIndex(H3_UserMetadata* userMetadata, H3_Name bucketName){
     int i;
