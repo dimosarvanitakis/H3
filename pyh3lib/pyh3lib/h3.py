@@ -457,20 +457,20 @@ class H3(object, metaclass=H3Version):
         return h3lib.delete_object(self._handle, bucket_name, object_name, self._user_id)
     
     def create_object_metadata(self, bucket_name, object_name, metadata_name, metadata_value, size):
-        # """Create a new metadata for an object.
+        """Create a new metadata for an object.
 
-        # :param bucket_name: the bucket name
-        # :param object_name: the object name
-        # :param metadata_name: the object's metadata name
-        # :param metadata_value: the object's metadata value
-        # :param size: the size of the object's metadata value
-        # :type bucket_name: string
-        # :type object_name: string
-        # :type metadata_name: string
-        # :type metadata_value: bytes
-        # :type size: int
-        # :returns: ``True`` if the call was successful
-        # """
+        :param bucket_name: the bucket name
+        :param object_name: the object name
+        :param metadata_name: the object's metadata name
+        :param metadata_value: the object's metadata value
+        :param size: the size of the object's metadata value
+        :type bucket_name: string
+        :type object_name: string
+        :type metadata_name: string
+        :type metadata_value: bytes
+        :type size: int
+        :returns: ``True`` if the call was successful
+        """
 
         return h3lib.create_object_metadata(self._handle, bucket_name, object_name, metadata_name, metadata_value, size, self._user_id)
 

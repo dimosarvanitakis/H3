@@ -20,7 +20,7 @@ import pyh3lib
 
 def removeObjectsAfter(h3, now):
     """
-    Delete's all the objects that have the metadata 
+    Deletes all the objects that have the metadata 
     key ExpiresAt, and the time that is specified in
     the ExpiresAt has come.
 
