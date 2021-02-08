@@ -442,7 +442,7 @@ H3_Status DeleteObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucket
 }
 
 H3_Status PurgeObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName) {
-    H3_Status status = H3_FAILURE;
+    H3_Status status = H3_SUCCESS;
     KV_Handle _handle = ctx->handle;
     KV_Operations* op = ctx->operation;
     KV_Status storeStatus;
@@ -455,7 +455,7 @@ H3_Status PurgeObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketN
     uint32_t nMetadata = 0;
     
     // List all the metadata of the object
-    if ((storeStatus = op->list(_handle, prefix, trim, metadata, 0, &nMetadata)) != KV_FAILURE) {
+    if ((storeStatus = op->list(_handle, prefix, trim, metadata, 0, &nMetadata)) == KV_SUCCESS) {
         H3_Name current_metadata_name;
         uint32_t current_metadata_index = 0;
         size_t current_metadata_len;
@@ -473,6 +473,10 @@ H3_Status PurgeObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketN
             } 
         }
 
+    } else if (storeStatus == KV_CONTINUE) {
+        status = H3_CONTINUE;
+    } else {
+        status = H3_FAILURE;
     }
     free(metadata);
 
@@ -480,7 +484,7 @@ H3_Status PurgeObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketN
 }
 
 H3_Status CopyObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName) {
-    H3_Status status = H3_FAILURE;
+    H3_Status status = H3_SUCCESS;
     KV_Handle _handle = ctx->handle;
     KV_Operations* op = ctx->operation;
     KV_Status storeStatus;
@@ -493,7 +497,7 @@ H3_Status CopyObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketNa
     uint32_t nMetadata = 0;
     
     // List all the metadata of the object
-    if ((storeStatus = op->list(_handle, prefix, trim, metadata, 0, &nMetadata)) != KV_FAILURE) {
+    if ((storeStatus = op->list(_handle, prefix, trim, metadata, 0, &nMetadata)) == KV_SUCCESS) {
         H3_Name current_metadata_name;
         uint32_t current_metadata_index = 0;
         size_t current_metadata_len;
@@ -518,6 +522,10 @@ H3_Status CopyObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketNa
             }
             free(srcMetadataValue);
         }
+    } else if (storeStatus == KV_CONTINUE) {
+        status = H3_CONTINUE;
+    } else {
+        status = H3_FAILURE;
     }
     free(metadata);
 
@@ -1403,7 +1411,7 @@ H3_Status DeleteObject(H3_Context* ctx, H3_UserId userId, H3_ObjectId objId, cha
             GetBucketAndObjectFromId(&bucketName, &objectName, objId);
 
             // Also delete the object's metadata
-            if ((status = PurgeObjectMetadata(ctx, userId, bucketName, objectName)) != H3_SUCCESS) {
+            if ((status = PurgeObjectMetadata(ctx, userId, bucketName, objectName)) == H3_FAILURE) {
                 if (bucketName)
                     free(bucketName);
                 if (objectName)

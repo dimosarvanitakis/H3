@@ -334,6 +334,8 @@ def test_metadata(h3):
     assert h3.create_bucket('b1') == True
 
     h3.create_object('b1', 'o1', b'')
+    
+    h3.create_object('b1', 'o2', b'')
 
     assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'', 0) == True
 
@@ -349,6 +351,8 @@ def test_metadata(h3):
 
     assert h3.list_objects_with_metadata('b1', 'read_only') == ['o1']
 
-    h3.delete_object('b1', 'o1')
+    assert h3.delete_object('b1', 'o1')
+
+    assert h3.delete_object('b1', 'o2')
 
     assert h3.delete_bucket('b1') == True
