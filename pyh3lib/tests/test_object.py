@@ -337,9 +337,9 @@ def test_metadata(h3):
     
     h3.create_object('b1', 'o2', b'')
 
-    assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'', 0) == True
+    assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'') == True
 
-    assert h3.create_object_metadata('b1', 'o1', 'read_only', (258).to_bytes(4, byteorder='little'), 4) == True
+    assert h3.create_object_metadata('b1', 'o1', 'read_only', (258).to_bytes(4, byteorder='little'))
 
     assert int.from_bytes(h3.read_object_metadata('b1', 'o1', 'read_only'), byteorder='little') == 258
 
