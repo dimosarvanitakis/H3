@@ -631,7 +631,7 @@ H3_Status H3_CreatePseydoObject(H3_Handle handle, H3_Token token, H3_Name bucket
         return H3_INVALID_ARGS;
     }
 
-    H3_Status status;
+    H3_Status status = H3_FAILURE;
     H3_Context* ctx = (H3_Context*)handle;
     KV_Handle _handle = ctx->handle;
     KV_Operations* op = ctx->operation;
@@ -684,7 +684,7 @@ H3_Status H3_CreatePseydoObject(H3_Handle handle, H3_Token token, H3_Name bucket
 
         objMeta->part[0].size      = info->size;
         objMeta->part[0].offset    = 0;
-        objMeta->part[0].number    = 1;
+        objMeta->part[0].number    = 0;
         objMeta->part[0].subNumber = -1;
 
         H3_PartId partId;
@@ -696,7 +696,7 @@ H3_Status H3_CreatePseydoObject(H3_Handle handle, H3_Token token, H3_Name bucket
             status = H3_SUCCESS;
         }
         else if(storeStatus == KV_KEY_EXIST) 
-            status = H3_FAILURE;
+            status = H3_EXISTS;
         else if(storeStatus == KV_KEY_TOO_LONG)
             status = H3_NAME_TOO_LONG;
 
@@ -2661,6 +2661,45 @@ H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucket
     }
 
     return ReadObjectMetadata(ctx, userId, bucketName, objectName, key, value, size);
+}
+
+/*! \brief Copy the metadata from one object to onother
+ *
+ * @param[in]     handle            An h3lib handle
+ * @param[in]     token             Authentication information
+ * @param[in]     bucketName        The name of the bucket
+ * @param[in]     srcObjectName     Source object 
+ * @param[in]     dstObjectName     Destination object
+ *
+ * @result \b H3_SUCCESS            Operation completed successfully (no more matching names exist)
+ * @result \b H3_CONTINUE           Operation completed successfully (there could be more matching names)
+ * @result \b H3_FAILURE            Unable to access bucket or user has no access
+ * @result \b H3_NOT_EXISTS         Bucket does not exist
+ * @result \b H3_INVALID_ARGS       Missing or malformed arguments
+ * @result \b H3_NAME_TOO_LONG      Bucket or Object name is longer than H3_BUCKET_NAME_SIZE or H3_OBJECT_NAME_SIZE respectively
+ *
+ */
+H3_Status H3_CopyObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName) {
+    if (!handle || !token  || !bucketName || !srcObjectName || !dstObjectName) {
+        return H3_INVALID_ARGS;
+    }
+
+    H3_Status status;
+    H3_Context* ctx = (H3_Context*)handle;
+    H3_UserId userId;
+
+    // Validate bucketName & extract userId from token
+    if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS 	||
+    	(status = ValidObjectName(ctx->operation, srcObjectName)) != H3_SUCCESS ||
+		(status = ValidObjectName(ctx->operation, dstObjectName)) != H3_SUCCESS) {
+        return status;
+    }
+
+    if (!GetUserId(token, userId)) {
+        return H3_INVALID_ARGS;
+    }
+
+    return CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, dstObjectName);
 }
 
 /*! \brief  Retrieve objects that have a specific metadata key

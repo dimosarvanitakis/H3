@@ -31,7 +31,6 @@ def MoveToCold(h3_cache, h3_cold):
     for h3_cache_bucket in h3_cache.list_buckets():
         # List all the objects in the cache bucket
         for h3_cache_object in h3_cache.list_objects(h3_cache_bucket):
-            print(h3_cache_object)
             done   = False
             offset = 0
             
@@ -43,7 +42,6 @@ def MoveToCold(h3_cache, h3_cold):
                 offset += len(data)
 
             h3_cache.delete_object(h3_cache_bucket, h3_cache_object)
-
 
 def main(cmd=None):
     parser = argparse.ArgumentParser(description='Move Objects to Cold storage')
