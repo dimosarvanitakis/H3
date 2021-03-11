@@ -535,7 +535,7 @@ class H3Cache(object, metaclass=H3Version):
         """
 
         done = False
-        data = b''
+        data = None
 
         # try to fetch it from the cache
         try:
@@ -555,6 +555,9 @@ class H3Cache(object, metaclass=H3Version):
         # something went wrong with the cache
         except (h3lib.FailureError, h3lib.StoreError):
             data, done = h3lib.read_object(self._cold_handle, bucket_name, object_name, offset, size, self._user_id)
+
+        if data is None:
+            data = b''
 
         return H3Bytes(data, done=done)
 
@@ -613,10 +616,11 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
+        status = None
+
         # if the object exists in the cache, copy it in the cache
         if h3lib.object_exists(self._cache_handle, bucket_name, src_object_name):
-            
-            status = None
+
             if h3lib.object_exists(self._cold_handle, bucket_name, dst_object_name):
                 if not no_overwrite:
                     status = h3lib.copy_object(self._cache_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
@@ -624,7 +628,7 @@ class H3Cache(object, metaclass=H3Version):
                     # update the dst_object info in the cold storage
                     self.__touch_object_in_cold_storage__(bucket_name, dst_object_name)
                 else:
-                    raise h3lib.ExistsError
+                    raise h3lib.FailureError
             else:
                 status = h3lib.copy_object(self._cache_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
 
@@ -645,15 +649,18 @@ class H3Cache(object, metaclass=H3Version):
                 
             return status
 
+        # otherwise copy the object in the cold storage_cold_handle    
+        status = h3lib.copy_object(self._cold_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
+       
         # maybe we have only the destination object in cache
-        # delete it
+        # delete it because we are going to overwrite it in the cold storage
         try:
-            h3lib.delete_object(self._cache_handle, bucket_name, dst_object_name, self._user_id)
+            if not no_overwrite:
+                h3lib.delete_object(self._cache_handle, bucket_name, dst_object_name, self._user_id)
         except h3lib.NotExistsError:
             pass
-                
-        # otherwise copy the object in the cold storage_cold_handle    
-        return h3lib.copy_object(self._cold_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
+
+        return status
 
     def move_object(self, bucket_name, src_object_name, dst_object_name, no_overwrite=False):
         """Move/rename an object to another object.
@@ -669,12 +676,15 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
+        status = None
+
         # if the object exists in the cache, copy it in the cache
         if h3lib.object_exists(self._cache_handle, bucket_name, src_object_name):
             
-            status = None
             if h3lib.object_exists(self._cold_handle, bucket_name, dst_object_name):
                 if not no_overwrite:
+                    h3lib.move_object_metadata(self._cold_handle, bucket_name, src_object_name, dst_object_name, self._user_id)
+
                     status = h3lib.move_object(self._cache_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
 
                     # update the dst_object info in the cold storage
@@ -691,6 +701,8 @@ class H3Cache(object, metaclass=H3Version):
                 h3lib.create_pseydo_object(self._cold_handle, bucket_name, dst_object_name, info.is_bad, info.read_only,
                                            info.size, info.creation, info.last_access, info.last_modification, info.last_change,
                                            info.mode, info.uid, info.gid)
+                
+                h3lib.move_object_metadata(self._cold_handle, bucket_name, src_object_name, dst_object_name, self._user_id)
 
             if status:
                 # delete the object from the cold storage
@@ -701,16 +713,19 @@ class H3Cache(object, metaclass=H3Version):
                 
             return status
 
+        # otherwise do it in the cold storage
+        status = h3lib.move_object(self._cold_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
+        
         # maybe we have only the destination object in cache
-        # delete it
+        # delete it because we are going to overwrite it in the cold storage
         try:
-            h3lib.delete_object(self._cache_handle, bucket_name, dst_object_name, self._user_id)
+            if not no_overwrite:
+                h3lib.delete_object(self._cache_handle, bucket_name, dst_object_name, self._user_id)
         except h3lib.NotExistsError:
             pass
 
-        # otherwise do it in the cold storage
-        return h3lib.move_object(self._cold_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
-        
+        return status
+
     def exchange_object(self, bucket_name, src_object_name, dst_object_name):
         """Exchange data between objects.
 
@@ -805,6 +820,38 @@ class H3Cache(object, metaclass=H3Version):
         if data is None:
             data = b''
         return H3Bytes(data, done=done)
+    
+    def copy_object_metadata(self, bucket_name, src_object_name, dst_object_name):
+        """Copy all the source object's metadata to the destination object.
+
+        :param bucket_name: the bucket name
+        :param src_object_name: the source object name
+        :param dst_object_name: the destination object name
+        :type bucket_name: string
+        :type src_object_name: string
+        :type dst_object_name: string
+        :returns: ``True`` if the call was successful
+        """
+        
+        return h3lib.copy_object_metadata(self._handle, bucket_name, src_object_name, dst_object_name, self._user_id)
+
+    def move_object_metadata(self, bucket_name, src_object_name, dst_object_name):
+        """Move all the source object's metadata to the destination object.
+
+        :param bucket_name: the bucket name
+        :param src_object_name: the source object name
+        :param dst_object_name: the destination object name
+        :type bucket_name: string
+        :type src_object_name: string
+        :type dst_object_name: string
+        :returns: ``True`` if the call was successful
+
+        .. note::
+            All the source object's metadata will be deleted after the move action.
+            All the destination object's metadata will be deleted before the move action
+        """
+
+        return h3lib.move_object_metadata(self._handle, bucket_name, src_object_name, dst_object_name, self._user_id)
     
     def list_objects_with_metadata(self, bucket_name, metadata_name):
         """Delete an object's specific metadata.

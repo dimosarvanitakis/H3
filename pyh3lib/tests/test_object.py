@@ -308,51 +308,49 @@ def test_file(h3):
     assert h3.delete_bucket('b1') == True
 
 def test_empty(h3):
-    """Create and read an empty object."""
-
-    assert h3.list_buckets() == []
-
-    assert h3.create_bucket('b1') == True
-
-    h3.create_object('b1', 'o1', b'')
-    object_info = h3.info_object('b1', 'o1')
-    assert not object_info.is_bad
-    assert object_info.size == 0
-
-    object_data = h3.read_object('b1', 'o1')
-    assert object_data == b''
-
-    h3.delete_object('b1', 'o1')
-
-    assert h3.delete_bucket('b1') == True
-
-def test_metadata(h3):
     """Create, search and delete metadata to an empty object."""
     
     assert h3.list_buckets() == []
 
-    assert h3.create_bucket('b1') == True
+    assert h3.create_bucket('b1')
 
     h3.create_object('b1', 'o1', b'')
-    
-    h3.create_object('b1', 'o2', b'')
 
-    assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'') == True
+    h3.create_object('b1', 'o3', b'')
+
+    assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'')
 
     assert h3.create_object_metadata('b1', 'o1', 'read_only', (258).to_bytes(4, byteorder='little'))
 
     assert int.from_bytes(h3.read_object_metadata('b1', 'o1', 'read_only'), byteorder='little') == 258
 
+    h3.copy_object('b1', 'o1', 'o2')
+
+    assert h3.create_object_metadata('b1', 'o2', 'testmeta_2', b'')
+
+    assert h3.list_objects_with_metadata('b1', 'testmeta_2') == ['o2']
+
     assert h3.read_object_metadata('b1', 'o1', 'testmeta') == b''
     
-    assert h3.delete_object_metadata('b1', 'o1', 'testmeta') == True
+    assert h3.delete_object_metadata('b1', 'o1', 'testmeta')
 
-    assert h3.list_objects_with_metadata('b1', 'testmeta') == []
+    assert h3.list_objects_with_metadata('b1', 'testmeta') == ['o2']
 
-    assert h3.list_objects_with_metadata('b1', 'read_only') == ['o1']
+    assert h3.list_objects_with_metadata('b1', 'read_only') == ['o1','o2']
 
-    assert h3.delete_object('b1', 'o1')
+    assert h3.create_object_metadata('b1', 'o3', 'testmeta_3', b'')
 
-    assert h3.delete_object('b1', 'o2')
+    h3.move_object('b1', 'o1', 'o3')
+
+    assert h3.list_objects_with_metadata('b1', 'read_only') == ['o2', 'o3']
+
+    assert h3.list_objects_with_metadata('b1', 'testmeta_3') == []
+
+    with pytest.raises(pyh3lib.H3NotExistsError):
+        h3.delete_object('b1', 'o1')
+
+    h3.delete_object('b1', 'o2')
+
+    h3.delete_object('b1', 'o3')
 
     assert h3.delete_bucket('b1') == True

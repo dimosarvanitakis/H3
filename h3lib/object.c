@@ -1792,15 +1792,25 @@ H3_Status MoveObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Na
         if( GrantObjectAccess(userId, srcObjMeta) ){
 
             value = NULL;
+            H3_ObjectId tempObjectId;
+            H3_Name tempObject = GenerateDummyObjectName();
+            GetObjectId(bucketName, tempObject, tempObjectId);
+            
             switch(op->metadata_read(_handle, dstObjId, 0, &value, &dstMetaSize)){
+
                 case KV_SUCCESS:{
                     // Make sure the user has access to the destination object
                     H3_ObjectMetadata* dstObjMeta = (H3_ObjectMetadata*)value;
                     if( GrantObjectAccess(userId, dstObjMeta) ){
+
                         switch(policy){
                             case MoveReplace:
-                                if( DeleteObject(ctx, userId, dstObjId, 0) == H3_SUCCESS            &&
-                                    op->metadata_move(_handle, srcObjId, dstObjId) == KV_SUCCESS        ){
+                                if( DeleteObject(ctx, userId, dstObjId, 0)                                    == H3_SUCCESS &&                                   
+                                    H3_CreateDummyObject(handle, token, bucketName, tempObject, value, 0, 0)  == H3_SUCCESS &&
+                                    CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, tempObject)    == H3_SUCCESS && 
+                                    op->metadata_move(_handle, srcObjId, dstObjId)                            == KV_SUCCESS &&
+                                    CopyObjectMetadata(ctx, userId, bucketName, tempObject, dstObjectName)    == H3_SUCCESS &&
+                                    DeleteObject(ctx, userId, tempObjectId, 0)                                == H3_SUCCESS    ){
                                     status = H3_SUCCESS;
                                 }
                                 break;
@@ -1822,7 +1832,14 @@ H3_Status MoveObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Na
                 break;
 
                 case KV_KEY_NOT_EXIST:
-                    if(policy != MoveExchange && op->metadata_move(_handle, srcObjId, dstObjId) == KV_SUCCESS){ status = H3_SUCCESS; }
+                    if( policy != MoveExchange                                                                  &&
+                        H3_CreateDummyObject(handle, token, bucketName, tempObject, value, 0, 0)  == H3_SUCCESS &&
+                        CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, tempObject)    == H3_SUCCESS && 
+                        op->metadata_move(_handle, srcObjId, dstObjId)                            == KV_SUCCESS &&
+                        CopyObjectMetadata(ctx, userId, bucketName, tempObject, dstObjectName)    == H3_SUCCESS &&
+                        DeleteObject(ctx, userId, tempObjectId, 0)                                == H3_SUCCESS    ) { 
+                            status = H3_SUCCESS; 
+                        }
                     break;
 
                 default:
@@ -2700,6 +2717,34 @@ H3_Status H3_CopyObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucket
     }
 
     return CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, dstObjectName);
+}
+
+H3_Status H3_MoveObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName) {
+    if (!handle || !token  || !bucketName || !srcObjectName || !dstObjectName) {
+        return H3_INVALID_ARGS;
+    }
+
+    H3_Status status = H3_FAILURE;
+    H3_Context* ctx = (H3_Context*)handle;
+    H3_UserId userId;
+
+    // Validate bucketName & extract userId from token
+    if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS 	||
+    	(status = ValidObjectName(ctx->operation, srcObjectName)) != H3_SUCCESS ||
+		(status = ValidObjectName(ctx->operation, dstObjectName)) != H3_SUCCESS) {
+        return status;
+    }
+
+    if (!GetUserId(token, userId)) {
+        return H3_INVALID_ARGS;
+    }
+
+    if ((status = PurgeObjectMetadata(ctx, userId, bucketName, dstObjectName))               == H3_SUCCESS && 
+        (status = CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, dstObjectName)) == H3_SUCCESS && 
+        (status = PurgeObjectMetadata(ctx, userId, bucketName, srcObjectName))               == H3_SUCCESS   )
+        status = H3_SUCCESS;
+
+    return status;
 }
 
 /*! \brief  Retrieve objects that have a specific metadata key

@@ -136,6 +136,7 @@ char* GetBucketFromId(H3_ObjectId objId, H3_BucketId bucketId);
 void GetBucketAndObjectFromId(H3_Name* bucketName, H3_Name* objectName, H3_ObjectId id);
 void InitMode(H3_ObjectMetadata* objMeta);
 H3_MultipartId GenerateMultipartId(uuid_t uuid);
+H3_Name GenerateDummyObjectName();
 void CreatePartId(H3_PartId partId, uuid_t uuid, int partNumber, int subPartNumber);
 char* PartToId(H3_PartId partId, uuid_t uuid, H3_PartMetadata* part);
 int GrantBucketAccess(H3_UserId id, H3_BucketMetadata* meta);

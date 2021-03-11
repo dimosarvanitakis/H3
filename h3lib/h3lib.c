@@ -84,6 +84,19 @@ void GetObjectMetadataId(H3_ObjectMetadataId metadataId, H3_Name bucketName, H3_
         snprintf(metadataId, sizeof(H3_ObjectMetadataId), "%s#%s#", bucketName, objectName);
 }
 
+H3_Name GenerateDummyObjectName() {
+    uuid_t uuid;
+    H3_UUID uuidString;
+    H3_Name id = malloc(H3_OBJECT_NAME_SIZE);
+
+    uuid_generate(uuid);
+    uuid_unparse_lower(uuid, uuidString);
+    
+    snprintf(id, H3_OBJECT_NAME_SIZE, "%s", uuidString);
+
+    return id;
+}
+
 H3_MultipartId GenerateMultipartId(uuid_t uuid ){
     H3_MultipartId id = malloc(H3_MULIPARTID_SIZE);
     H3_UUID uuidString;
