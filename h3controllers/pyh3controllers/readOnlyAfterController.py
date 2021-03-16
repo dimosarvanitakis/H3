@@ -18,7 +18,7 @@ import struct
 
 import pyh3lib
 
-def makeObjectsReadOnly(h3, now):
+def ReadOnlyAfter(h3, now):
     """
     Set's the permissions to read only in all objects 
     that have the metadata key ReadOnlyAfter, and the 
@@ -55,7 +55,7 @@ def main(cmd=None):
         # Wall Clock
         clock = time.CLOCK_REALTIME
         # Pass the time     
-        makeObjectsReadOnly(h3, time.clock_gettime(clock))
+        ReadOnlyAfter(h3, time.clock_gettime(clock))
     else:
         parser.print_help(sys.stderr)
         sys.exit(1)

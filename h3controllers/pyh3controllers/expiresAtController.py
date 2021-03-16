@@ -18,7 +18,7 @@ import struct
 
 import pyh3lib
 
-def removeObjectsAfter(h3, now):
+def ExpiresAt(h3, now):
     """
     Deletes all the objects that have the metadata 
     key ExpiresAt, and the time that is specified in
@@ -52,7 +52,7 @@ def main(cmd=None):
         # Wall Clock
         clock = time.CLOCK_REALTIME
         # Pass the time     
-        removeObjectsAfter(h3, time.clock_gettime(clock))
+        ExpiresAt(h3, time.clock_gettime(clock))
     else:
         parser.print_help(sys.stderr)
         sys.exit(1)
