@@ -20,9 +20,8 @@ import pyh3lib
 
 def ExpiresAt(h3, now):
     """
-    Deletes all the objects that have the metadata 
-    key ExpiresAt, and the time that is specified in
-    the ExpiresAt has come.
+    Delete all the objects that have the ExpiresAt attribute 
+    and the time that is specified in the ExpiresAt has come.
 
     :param now: the time, now
     :type now: float
@@ -31,13 +30,13 @@ def ExpiresAt(h3, now):
 
     # list all the buckets 
     for h3_bucket in h3.list_buckets():
-        # list all the objects with the specific metadata key
+        # list all the objects that have the ExpiresAt attribute
         for h3_object in h3.list_objects_with_metadata(h3_bucket, "ExpiresAt"):
             # the h3_object contains the object's name
             h3_object_remove_timestamp = struct.unpack('d', h3.read_object_metadata(h3_bucket, h3_object, "ExpiresAt"))
 
-            # Check if we must change the permissions of the object to read only
-            if (h3_object_remove_timestamp[0] <= now) :
+            # Check if we must remove the object
+            if (h3_object_remove_timestamp[0] >= now) :
                 h3.delete_object(h3_bucket, h3_object)
 
 def main(cmd=None):

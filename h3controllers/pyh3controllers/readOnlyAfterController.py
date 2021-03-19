@@ -20,11 +20,8 @@ import pyh3lib
 
 def ReadOnlyAfter(h3, now):
     """
-    Set's the permissions to read only in all objects 
-    that have the metadata key ReadOnlyAfter, and the 
-    time that is specified in the ReadOnlyAfter plus
-    the time from the last time that the object has 
-    been modified exceeds the now time. 
+    Set's the permissions to read only in all objects that have the ReadOnlyAfter attribute and the time that is specified 
+    in the ReadOnlyAfter plus the time from the last time that the object has been modified exceeds the "now" time. 
     
     :param now: the time, now
     :type now: float
@@ -33,7 +30,7 @@ def ReadOnlyAfter(h3, now):
 
     # list all the buckets 
     for h3_bucket in h3.list_buckets():
-        # list all the objects with the specific metadata key
+        # list all the objects that have the ReadOnlyAfter attribute
         for h3_object in h3.list_objects_with_metadata(h3_bucket, "ReadOnlyAfter"):
             # the h3_object contains the object's name
             h3_object_read_only_secs = struct.unpack('d', h3.read_object_metadata(h3_bucket, h3_object, "ReadOnlyAfter"))
