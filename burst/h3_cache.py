@@ -14,6 +14,7 @@
 
 from . import h3lib
 import time
+import struct
 
 class H3List(list):
     """A list that has a ``done`` attribute. If ``done`` is ``False``
