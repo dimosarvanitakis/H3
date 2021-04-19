@@ -27,9 +27,9 @@
 /** \defgroup Macros
  *  @{
  */
-#define H3_BUCKET_NAME_SIZE           64          //!< Maximum number of characters allowed for a bucket
-#define H3_OBJECT_NAME_SIZE           512         //!< Maximum number of characters allowed for an object
-#define H3_OBJECT_METADATA_NAME_SIZE  64          //!< Maximum number of characters allowed for an object's metadata name
+#define H3_BUCKET_NAME_SIZE    64          //!< Maximum number of characters allowed for a bucket
+#define H3_OBJECT_NAME_SIZE    512         //!< Maximum number of characters allowed for an object
+#define H3_METADATA_NAME_SIZE  64          //!< Maximum number of characters allowed for an object's metadata name
 /** @}*/
 
 
@@ -78,6 +78,12 @@ typedef struct{
 /*! \brief Pointer to user authentication data */
 typedef const H3_Auth* H3_Token;
 
+/*! \brief H3 Storage information */
+typedef struct {
+    unsigned long totalSpace;
+	unsigned long freeSpace;
+	unsigned long usedSpace;
+} H3_StorageInfo;
 
 /*! \brief Bucket statistics */
 typedef struct {
@@ -147,6 +153,11 @@ H3_Handle H3_Init(const char* storageUri);
 void H3_Free(H3_Handle handle);
 /** @}*/
 
+/** \defgroup storage Storage Info
+ *  @{
+ */
+ H3_Status H3_InfoStorage(H3_Handle handle, H3_StorageInfo* storageInfo);
+/** @}*/
 
 /** \defgroup bucket Bucket management
  *  @{
@@ -185,12 +196,12 @@ H3_Status H3_MoveObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3
 H3_Status H3_ExchangeObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName);
 H3_Status H3_TruncateObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, size_t size);
 H3_Status H3_DeleteObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName);
-H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, void* value, size_t size);
-H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key);
-H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, void** matadata, size_t* size);
+H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name metadataName, void* data, size_t size);
+H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name metadataName);
+H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name metadataName, void** data, size_t* size);
 H3_Status H3_CopyObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName);
 H3_Status H3_MoveObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName);
-H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name key, H3_Name* objectNameArray, uint32_t* nObjects);
+H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name metadataName, uint32_t offset, H3_Name* objectNameArray, uint32_t* nObjects, uint32_t* next0ffset);
 /** @}*/
 
 

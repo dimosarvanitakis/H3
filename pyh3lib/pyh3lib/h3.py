@@ -73,12 +73,31 @@ class H3(object, metaclass=H3Version):
 
     OBJECT_NAME_SIZE = h3lib.H3_OBJECT_NAME_SIZE
     """Maximum object name size."""
+    
+    METADATA_NAME_SIZE = h3lib.H3_METADATA_NAME_SIZE
+    """Maximum metadata name size."""
 
     def __init__(self, storage_uri, user_id=0):
         self._handle = h3lib.init(storage_uri)
         if not self._handle:
             raise SystemError('Could not create H3 handle')
         self._user_id = user_id
+
+    def info_storage(self):
+        """Get H3 storage info
+
+        :returns: A named tuple with storage information if the call was successful
+
+        The returned tuple has the following fields:
+
+        ===============  ===============
+        ``total_space``  <int>
+        ``free_space``   <int>
+        ``used_space``   <int>
+        ===============  ===============
+        """
+
+        return h3lib.info_storage(self._handle)
 
     def list_buckets(self):
         """List all buckets.
@@ -537,18 +556,20 @@ class H3(object, metaclass=H3Version):
 
         return h3lib.move_object_metadata(self._handle, bucket_name, src_object_name, dst_object_name, self._user_id)
     
-    def list_objects_with_metadata(self, bucket_name, metadata_name):
+    def list_objects_with_metadata(self, bucket_name, metadata_name, offset=0):
         """Delete an object's specific metadata.
 
         :param bucket_name: the bucket name
         :param metadata_name: metadata name
+        :param offset: continue list from offset (default is to start from the beginning)
         :type bucket_name: string
         :type metadata_name: string
+        :type offset: int
         :returns: An H3List of object names if the call was successful
         """
 
-        objects, done = h3lib.list_objects_with_metadata(self._handle, bucket_name, metadata_name, self._user_id)
-        return H3List(objects, done=done)
+        objects = h3lib.list_objects_with_metadata(self._handle, bucket_name, metadata_name, offset, self._user_id)
+        return H3List(objects["objects"], done=objects["done"], nextOffset=objects["nextOffset"])
 
     def list_multiparts(self, bucket_name, offset=0, count=10000):
         """List all multipart IDs for a bucket.

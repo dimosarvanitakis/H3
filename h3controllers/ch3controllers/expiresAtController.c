@@ -80,6 +80,7 @@ int main(int argc, char* argv[]) {
         uint32_t current_bucket_pos = 0;
         size_t current_bucket_len = 0;
         int bucket;
+
         for (bucket = 0; bucket < totalBuckets; bucket++) {
             current_bucket = &(buckets[current_bucket_pos]);
             current_bucket_len = strlen(current_bucket);
@@ -88,10 +89,13 @@ int main(int argc, char* argv[]) {
                 current_bucket_pos++;
         
             H3_Name objects = NULL;
+            H3_Status status;
             uint32_t totalObjects;
+            uint32_t offset = 0;
+            uint32_t nextOffset = 0;
 
             // List all the objects that have an ExpiresAt metadata
-            if (H3_ListObjectsWithMetadata(h3_handle, &auth, current_bucket, "ExpiresAt", &objects, &totalObjects) == H3_SUCCESS) {
+            while ((status = H3_ListObjectsWithMetadata(h3_handle, &auth, current_bucket, "ExpiresAt", offset, &objects, &totalObjects, &nextOffset)) == H3_CONTINUE || (status == H3_SUCCESS && totalObjects)) {
                 H3_Name current_object;
                 uint32_t current_object_pos = 0;
                 size_t current_object_len = 0;
@@ -124,6 +128,8 @@ int main(int argc, char* argv[]) {
                     if (expiresAt)
                         free(expiresAt);
                 }
+
+                offset = nextOffset;
             }
 
             // Free 

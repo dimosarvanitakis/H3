@@ -24,6 +24,12 @@ typedef void* KV_Handle;
 typedef char* KV_Key;
 typedef unsigned char* KV_Value;
 
+typedef struct {
+	unsigned long totalSpace;
+	unsigned long freeSpace;
+	unsigned long usedSpace;
+} KV_StorageInfo;
+
 // Error codes
 typedef enum {
     KV_FAILURE, KV_KEY_EXIST, KV_KEY_NOT_EXIST, KV_SUCCESS, KV_CONTINUE, KV_KEY_TOO_LONG, KV_INVALID_KEY
@@ -35,6 +41,7 @@ typedef struct KV_Operations {
 	KV_Handle (*init)(const char* storageUri);
 	void (*free)(KV_Handle handle);
 	KV_Status (*validate_key)(KV_Key key);
+	KV_Status (*storage_info)(KV_Handle handle, KV_StorageInfo* storageInfo);
 
 	/*
 	 * --- Read Operations --

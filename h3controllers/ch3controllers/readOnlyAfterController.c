@@ -88,10 +88,13 @@ int main(int argc, char* argv[]) {
                 current_bucket_pos++;
             
             H3_Name objects = NULL;
-            uint32_t totalObjects;
+            H3_Status status;
+            uint32_t totalObjects = 0;
+            uint32_t offset = 0;
+            uint32_t nextOffset = 0;
 
             // List all the objects that have an ReadOnlyAfter metadata
-            if (H3_ListObjectsWithMetadata(h3_handle, &auth, current_bucket, "ReadOnlyAfter", &objects, &totalObjects) == H3_SUCCESS) {
+            while ((status = H3_ListObjectsWithMetadata(h3_handle, &auth, current_bucket, "ReadOnlyAfter", offset, &objects, &totalObjects, &nextOffset)) == H3_CONTINUE || (status == H3_SUCCESS && totalObjects)) {
                 H3_Name current_object;
                 uint32_t current_object_pos = 0;
                 size_t current_object_len = 0;
@@ -130,6 +133,8 @@ int main(int argc, char* argv[]) {
                     if (readOnly)
                         free(readOnly);
                 }
+
+                offset = nextOffset;
             }
 
             // Free 

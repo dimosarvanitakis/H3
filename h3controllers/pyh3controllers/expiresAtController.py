@@ -30,14 +30,26 @@ def ExpiresAt(h3, now):
 
     # list all the buckets 
     for h3_bucket in h3.list_buckets():
+        done   = False
+        offset = 0
+        
         # list all the objects that have the ExpiresAt attribute
-        for h3_object in h3.list_objects_with_metadata(h3_bucket, "ExpiresAt"):
-            # the h3_object contains the object's name
-            h3_object_remove_timestamp = struct.unpack('d', h3.read_object_metadata(h3_bucket, h3_object, "ExpiresAt"))
+        while not done:
+            h3_objects = h3.list_objects_with_metadata(h3_bucket, "ExpiresAt", offset)
 
-            # Check if we must remove the object
-            if (h3_object_remove_timestamp[0] >= now) :
-                h3.delete_object(h3_bucket, h3_object)
+            for h3_object in h3_objects:
+                # the h3_object contains the object's name
+                expire_at = h3.read_object_metadata(h3_bucket, h3_object, "ExpiresAt")
+
+                if expire_at != b'':
+                    h3_object_remove_timestamp = struct.unpack('d', expire_at)
+
+                    # Check if we must remove the object
+                    if (h3_object_remove_timestamp[0] >= now) :
+                        h3.delete_object(h3_bucket, h3_object)
+            
+            done    = h3_objects.done
+            offset  = h3_objects.nextOffset
 
 def main(cmd=None):
     parser = argparse.ArgumentParser(description='ExpiresAt Controller')

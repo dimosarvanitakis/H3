@@ -30,10 +30,18 @@
                                     }
 
 // Named tuples returned
+static PyTypeObject storage_info_type;
 static PyTypeObject bucket_stats_type;
 static PyTypeObject bucket_info_type;
 static PyTypeObject object_info_type;
 static PyTypeObject part_info_type;
+
+static PyStructSequence_Field storage_info_fields[] = {
+    {"total_space", NULL},
+    {"free_space",  NULL},
+    {"used_space",  NULL},
+    {NULL}
+};
 
 static PyStructSequence_Field bucket_stats_fields[] = {
     {"size",              NULL},
@@ -67,6 +75,13 @@ static PyStructSequence_Field part_info_fields[] = {
     {"part_number", NULL},
     {"size",        NULL},
     {NULL}
+};
+
+static PyStructSequence_Desc storage_info_desc = {
+    "pyh3lib.h3lib.storage_info",
+    NULL,
+    storage_info_fields,
+    3,
 };
 
 static PyStructSequence_Desc bucket_stats_desc = {
@@ -163,6 +178,39 @@ static PyObject *h3lib_init(PyObject* self, PyObject *args, PyObject *kw) {
     }
 
     return PyCapsule_New((void *)handle, NULL, h3lib_free);
+}
+
+static PyObject *h3lib_info_storage(PyObject* self, PyObject *args, PyObject *kw) {
+    PyObject *capsule = NULL;
+
+    static char *kwlist[] = {"handle", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "O", kwlist, &capsule))
+        return NULL;
+
+    H3_Handle handle = (H3_Handle)PyCapsule_GetPointer(capsule, NULL);
+    if (handle == NULL)
+        return NULL;
+
+    H3_StorageInfo storageInfo;
+    if (did_raise_exception(H3_InfoStorage(handle, &storageInfo)))
+        return NULL;
+
+    PyObject *storage_info = PyStructSequence_New(&storage_info_type);
+    if (storage_info == NULL) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    PyStructSequence_SET_ITEM(storage_info, 0, Py_BuildValue("k", storageInfo.totalSpace));
+    PyStructSequence_SET_ITEM(storage_info, 1, Py_BuildValue("k", storageInfo.freeSpace));
+    PyStructSequence_SET_ITEM(storage_info, 2, Py_BuildValue("k", storageInfo.usedSpace));
+    if (PyErr_Occurred()) {
+        Py_DECREF(storage_info);
+        PyErr_NoMemory();
+        return NULL;
+    }
+
+    return storage_info;
 }
 
 static PyObject *h3lib_list_buckets(PyObject* self, PyObject *args, PyObject *kw) {
@@ -1346,10 +1394,11 @@ static PyObject *h3lib_list_objects_with_metadata(PyObject* self, PyObject *args
     PyObject *capsule = NULL;
     H3_Name bucketName;
     H3_Name metadataName;
+    uint32_t offset = 0;
     uint32_t userId = 0;
 
-    static char *kwlist[] = {"handle", "bucket_name", "metadata_name", "user_id", NULL};
-    if (!PyArg_ParseTupleAndKeywords(args, kw, "OssI", kwlist, &capsule, &bucketName, &metadataName, &userId))
+    static char *kwlist[] = {"handle", "bucket_name", "metadata_name", "offset", "user_id", NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "OsskI", kwlist, &capsule, &bucketName, &metadataName, &offset, &userId))
         return NULL;
 
     H3_Handle handle = (H3_Handle)PyCapsule_GetPointer(capsule, NULL);
@@ -1359,9 +1408,10 @@ static PyObject *h3lib_list_objects_with_metadata(PyObject* self, PyObject *args
     H3_Auth auth;
     H3_Name objectNameArray = NULL;
     uint32_t nObjects = 0;
+    uint32_t nextOffset = 0;
 
     auth.userId = userId;
-    H3_Status return_value = H3_ListObjectsWithMetadata(handle, &auth, bucketName, metadataName, &objectNameArray, &nObjects);
+    H3_Status return_value = H3_ListObjectsWithMetadata(handle, &auth, bucketName, metadataName, offset, &objectNameArray, &nObjects, &nextOffset);
     if (did_raise_exception(return_value))
         return NULL;
 
@@ -1382,12 +1432,13 @@ static PyObject *h3lib_list_objects_with_metadata(PyObject* self, PyObject *args
     if (objectNameArray != NULL)
         free(objectNameArray);
 
-    return Py_BuildValue("(OO)", list, (return_value == H3_SUCCESS ? Py_True : Py_False));
+    return Py_BuildValue("{s:O,s:O,s:k}", "objects", list, "done", (return_value == H3_SUCCESS ? Py_True : Py_False), "nextOffset", nextOffset);
 }
 
 static PyMethodDef module_functions[] = {
     {"version",                     (PyCFunction)h3lib_version,                     METH_NOARGS, NULL},
     {"init",                        (PyCFunction)h3lib_init,                        METH_VARARGS|METH_KEYWORDS, NULL},
+    {"info_storage",                (PyCFunction)h3lib_info_storage,                METH_VARARGS|METH_KEYWORDS, NULL},
 
     {"list_buckets",                (PyCFunction)h3lib_list_buckets,                METH_VARARGS|METH_KEYWORDS, NULL},
     {"info_bucket",                 (PyCFunction)h3lib_info_bucket,                 METH_VARARGS|METH_KEYWORDS, NULL},
@@ -1446,11 +1497,14 @@ PyMODINIT_FUNC PyInit_h3lib(void) {
 
     PyModule_AddIntConstant(module, "H3_BUCKET_NAME_SIZE", H3_BUCKET_NAME_SIZE);
     PyModule_AddIntConstant(module, "H3_OBJECT_NAME_SIZE", H3_OBJECT_NAME_SIZE);
+    PyModule_AddIntConstant(module, "H3_METADATA_NAME_SIZE", H3_METADATA_NAME_SIZE);
 
+    PyStructSequence_InitType(&storage_info_type, &storage_info_desc);
     PyStructSequence_InitType(&bucket_stats_type, &bucket_stats_desc);
     PyStructSequence_InitType(&bucket_info_type, &bucket_info_desc);
     PyStructSequence_InitType(&object_info_type, &object_info_desc);
     PyStructSequence_InitType(&part_info_type, &part_info_desc);
+    Py_INCREF((PyObject *)&storage_info_type);
     Py_INCREF((PyObject *)&bucket_stats_type);
     Py_INCREF((PyObject *)&bucket_info_type);
     Py_INCREF((PyObject *)&object_info_type);

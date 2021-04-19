@@ -53,7 +53,7 @@ class H3Version(type):
 class H3Cache(object, metaclass=H3Version):
     """Python interface to H3.
 
-    :param hot_storage_uri: cache backend storage URI
+    :param hot_storage_uri: hot backend storage URI
     :param cold_storage_uri: cold backend storage URI
     :param user_id: user performing all actions
     :type hot_storage_uri: string
@@ -78,16 +78,25 @@ class H3Cache(object, metaclass=H3Version):
     OBJECT_NAME_SIZE = h3lib.H3_OBJECT_NAME_SIZE
     """Maximum object name size."""
 
-    def __init__(self, cache_storage_uri, cold_storage_uri, user_id=0):
-        self._cache_handle = h3lib.init(cache_storage_uri)
-        self._cold_handle  = h3lib.init(cold_storage_uri)
-        if not self._cache_handle:
-            raise SystemError('Could not create H3 cache storage handle')
+    def __init__(self, hot_storage_uri, cold_storage_uri, user_id=0):
+        self._hot_handle = h3lib.init(hot_storage_uri)
+        self._cold_handle = h3lib.init(cold_storage_uri)
+        if not self._hot_handle:
+            raise SystemError('Could not create H3 hot storage handle')
         if not self._cold_handle:
             raise SystemError('Could not create H3 cold storage handle')
         self._user_id = user_id
 
     def __register_object_expiration_time__(self, bucket_name, object_name):
+        """Marks the object with the ``CachetAt`` attribute. 
+        
+        :param bucket_name: the bucket name
+        :param object_name: the object name
+        :type bucket_name: string
+        :type object_name: string
+        :returns: nothing
+        """
+
         # get the time now
         now = time.clock_gettime(time.CLOCK_REALTIME)
 
@@ -96,9 +105,131 @@ class H3Cache(object, metaclass=H3Version):
         # Cached at
         h3lib.create_object_metadata(self._cold_handle, bucket_name, object_name, "CachedAt", cached_at, self._user_id)
 
+    def __fetch_data_from_cold__(self, bucket_name, object_name):
+        """Fetches an object from the cold storage to the hot
+        
+        :param bucket_name: the bucket name
+        :type bucket_name: string
+        :returns: nothing
+        """
+
+        # create the bucket if it is not exists
+        try:
+            h3lib.create_bucket(self._hot_handle, bucket_name) 
+        # pass only the case that the bucket already exists
+        except h3lib.ExistsError:
+            pass
+
+        done   = False
+        offset = 0
+
+        while not done:
+            # read all the object from the cold storage
+            data, done = h3lib.read_object(self._cold_handle, bucket_name, object_name, offset, 0, self._user_id)
+            if data is None:
+                data = b''
+
+            # write it to the hot
+            h3lib.write_object(self._hot_handle, bucket_name, object_name, data, offset, self._user_id)
+            
+            offset += len(data)
+
+        # register when the object must be expires from the hot
+        self.__register_object_expiration_time__(bucket_name, object_name)
+
+    def __write_data_to_hot__(self, write_function, bucket_name, object_name, data, offset=0):
+        """Writes an object in the hot storage. 
+        
+        :param write_function: the write callback function
+        :param bucket_name: the bucket name
+        :param object_name: the object name
+        :param data: the objects data
+        :param offset: the offset in the object where writing should start
+        :type write_function: function
+        :type bucket_name: string
+        :type object_name: string
+        :type data: bytes
+        :type offset: int
+        :returns: ``True`` if the call was successful
+
+        .. note::
+            * In case the offset is not zero and is not exists in the hot, it must be fetched from the cold storage first.
+            * In case the offset is zero the objects is written in the hot directly.
+        """
+
+        # create the bucket in the hot
+        try:
+            h3lib.create_bucket(self._hot_handle, bucket_name) 
+        # pass only the case that the bucket already exists
+        except h3lib.ExistsError:
+            pass
+        
+        if offset:
+            # check if the object exists in the hot
+            try:
+                if not h3lib.object_exists(self._hot_handle, bucket_name, object_name):
+                    # fetch the object from the cold storage
+                    self.__fetch_data_from_cold__(bucket_name, object_name)
+            except h3lib.NotExistsError:
+                pass
+        
+        if write_function(self._hot_handle, bucket_name, object_name, data, offset, self._user_id):
+            # register when the object must be expires from the hot
+            self.__register_object_expiration_time__(bucket_name, object_name)
+
+            return self.__create_pseydo_object_in_cold__(bucket_name, object_name)
+
+        return False
+
+    def __create_object_in_hot__(self, create_function, bucket_name, object_name, data):
+        """Creates an object in the hot storage. 
+        
+        :param create_function: the create callback function
+        :param bucket_name: the bucket name
+        :param object_name: the object name
+        :param data: the objects data
+        :type create_function: function
+        :type bucket_name: string
+        :type object_name: string
+        :type data: bytes
+        :returns: ``True`` if the call was successful
+
+        .. note::
+            * In case the object exists in the cold it raises an ``ExistError`` exception.
+            * Otherwise the object is created in the hot storage and a pseydo object is create in the
+              cold storage.
+        """
+
+        # if the object exists in the cold storage, abort
+        if h3lib.object_exists(self._cold_handle, bucket_name, object_name):
+            raise h3lib.ExistsError
+        
+        # create the bucket if is not exists
+        try:
+            h3lib.create_bucket(self._hot_handle, bucket_name)
+        except h3lib.ExistsError:
+            pass
+
+        if create_function(self._hot_handle, bucket_name, object_name, data, self._user_id):
+            # register when the object must be expires from the hot
+            self.__register_object_expiration_time__(bucket_name, object_name)
+
+            return self.__create_pseydo_object_in_cold__(bucket_name, object_name)    
+
+        return False
+
     def __create_pseydo_object_in_cold__(self, bucket_name, object_name):
+        """Creates a pseydo object in the cold storage. 
+        
+        :param bucket_name: the bucket name
+        :param object_name: the object name
+        :type bucket_name: string
+        :type object_name: string
+        :returns: ``True`` if the call was successful
+        """
+
         # take the info
-        info = h3lib.info_object(self._cache_handle, bucket_name, object_name) 
+        info = h3lib.info_object(self._hot_handle, bucket_name, object_name) 
 
         try:
             # create a speydo object in the cold storage
@@ -110,93 +241,46 @@ class H3Cache(object, metaclass=H3Version):
 
         return False
 
-    def __write_data_to_cache__(self, write_function, bucket_name, object_name, data, offset=0):
-        # create the bucket in the cache
-        try:
-            h3lib.create_bucket(self._cache_handle, bucket_name) 
-        # pass only the case that the bucket already exists
-        except h3lib.ExistsError:
-            pass
-        
-        if offset:
-            # check if the object exists in the cache
-            try:
-                if not h3lib.object_exists(self._cache_handle, bucket_name, object_name):
-                    # fetch the object from the cold storage
-                    self.__fetch_data_from_cold__(bucket_name, object_name)
-            except h3lib.NotExistsError:
-                pass
-        
-        if write_function(self._cache_handle, bucket_name, object_name, data, offset, self._user_id):
-            # register when the object must be expires from the cache
-            self.__register_object_expiration_time__(bucket_name, object_name)
-
-            return self.__create_pseydo_object_in_cold__(bucket_name, object_name)
-
-        return False
-
-    def __create_object_in_cache__(self, create_function, bucket_name, object_name, data):
-        # if the object exists in the cold storage, abort
-        if h3lib.object_exists(self._cold_handle, bucket_name, object_name):
-            raise h3lib.ExistsError
-        
-        # create the bucket if is not exists
-        try:
-            h3lib.create_bucket(self._cache_handle, bucket_name)
-        except h3lib.ExistsError:
-            pass
-
-        if create_function(self._cache_handle, bucket_name, object_name, data, self._user_id):
-            # register when the object must be expires from the cache
-            self.__register_object_expiration_time__(bucket_name, object_name)
-
-            return self.__create_pseydo_object_in_cold__(bucket_name, object_name)    
-
-        return False
-
-    def __fetch_data_from_cold__(self, bucket_name, object_name, offset=0, size=0):
-        """Fetches an object from the cold storage to the cache
-
-        :returns: the fetched data
-        """
-        
-        done        = False
-        cold_offset = offset
-        data        = b''
-
-        # read all the object from the cold storage
-        while not done:
-            cold_data, done = h3lib.read_object(self._cold_handle, bucket_name, object_name, cold_offset, size, self._user_id)
-            if cold_data is None:
-                cold_data = b''
-            data        += cold_data
-            cold_offset += len(cold_data)
-
-        # create the bucket if it is not exists
-        try:
-            h3lib.create_bucket(self._cache_handle, bucket_name) 
-        # pass only the case that the bucket already exists
-        except h3lib.ExistsError:
-            pass
-
-        # register when the object must be expires from the cache
-        self.__register_object_expiration_time__(bucket_name, object_name)
-        
-        # write it to the cache
-        h3lib.write_object(self._cache_handle, bucket_name, object_name, data, 0, self._user_id)
-
     def __touch_object_in_cold_storage__(self, bucket_name, object_name):
+        """Updates the time metadata of an object in the cold storage
+        
+        :param bucket_name: the bucket name
+        :param object_name: the object name
+        :type bucket_name: string
+        :type object_name: string
+        :returns: nothing
+        """
+
         # change the last access time
         try:
-            info = h3lib.info_object(self._cache_handle, bucket_name, object_name)
+            info = h3lib.info_object(self._hot_handle, bucket_name, object_name)
 
             if info is not None:
                 h3lib.touch_object(self._cold_handle, bucket_name, object_name, info.last_access, info.last_modification, self._user_id)
         except h3lib.NotExistsError:
             pass
 
+    def info_storage(self):
+        """Get H3 storage info for both hot and cold
+
+        :returns: A dictionary with both storage information if the call was successful
+
+        The returned dictionary has the following fields for both cold and hot storage:
+
+        ===============  ===============
+        ``total_space``  <int>
+        ``free_space``   <int>
+        ``used_space``   <int>
+        ===============  ===============
+        """
+
+        return {
+            "hot" : h3lib.info_storage(self._hot_handle), 
+            "cold": h3lib.info_storage(self._cold_handle)
+        }
+
     def list_buckets(self):
-        """List all buckets in the cache & cold storage.
+        """List all buckets in the hot & cold storage.
 
         :returns: A list of bucket names if the call was successful
         """
@@ -255,10 +339,10 @@ class H3Cache(object, metaclass=H3Version):
            A bucket must be empty in order to be deleted.
         """
 
-        # Check if the bucket is in the cache in order to delete it.
+        # Check if the bucket is in the hot in order to delete it.
         try:
-            h3lib.delete_bucket(self._cache_handle, bucket_name)
-        # The bucket does not exists in the cache
+            h3lib.delete_bucket(self._hot_handle, bucket_name)
+        # The bucket does not exists in the hot
         except h3lib.NotExistsError:
             pass
 
@@ -272,10 +356,10 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
-        # Check if we have the bucket in the cache in order to delete it.
+        # Check if we have the bucket in the hot in order to delete it.
         try:
-            h3lib.purge_bucket(self._cache_handle, bucket_name)
-        # The bucket does not exists in the cache
+            h3lib.purge_bucket(self._hot_handle, bucket_name)
+        # The bucket does not exists in the hot
         except h3lib.NotExistsError:
             pass
 
@@ -335,9 +419,9 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
-        # touch the object in the cache
+        # touch the object in the hot
         try:
-            h3lib.touch_object(self._cache_handle, bucket_name, object_name, last_access, last_modification, self._user_id)
+            h3lib.touch_object(self._hot_handle, bucket_name, object_name, last_access, last_modification, self._user_id)
         except h3lib.NotExistsError:
             pass
 
@@ -355,9 +439,9 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
-        # set objects permissions in the cache
+        # set objects permissions in the hot
         try:
-            h3lib.set_object_permissions(self._cache_handle, bucket_name, object_name, mode, self._user_id)
+            h3lib.set_object_permissions(self._hot_handle, bucket_name, object_name, mode, self._user_id)
         except h3lib.NotExistsError:
             pass
 
@@ -373,9 +457,9 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
-        # make object read only in the cache
+        # make object read only in the hot
         try:
-            h3lib.make_object_read_only(self._cache_handle, bucket_name, object_name, self._user_id)
+            h3lib.make_object_read_only(self._hot_handle, bucket_name, object_name, self._user_id)
         except h3lib.NotExistsError:
             pass
 
@@ -395,7 +479,7 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
-        # set objects owner in the cache
+        # set objects owner in the hot
         try:
             h3lib.set_object_owner(self._cold_handle, bucket_name, object_name, uid, gid, self._user_id)
         except h3lib.NotExistsError:
@@ -415,7 +499,7 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
-        return self.__create_object_in_cache__(h3lib.create_object, bucket_name, object_name, data)
+        return self.__create_object_in_hot__(h3lib.create_object, bucket_name, object_name, data)
         
     def create_object_copy(self, bucket_name, src_object_name, offset, size, dst_object_name):
         """Create an object with data from another object.
@@ -433,23 +517,23 @@ class H3Cache(object, metaclass=H3Version):
         :returns: The bytes copied if the call was successful
         """
         
-        # if the object exists in the cache make a copie in the cache
-        if h3lib.object_exists(self._cache_handle, bucket_name, src_object_name):
+        # if the object exists in the hot make a copie in the hot
+        if h3lib.object_exists(self._hot_handle, bucket_name, src_object_name):
             # if the destination object exists in the cold storage, abort
             if h3lib.object_exists(self._cold_handle, bucket_name, dst_object_name):
                 raise h3lib.ExistsError
             
-            # everything is fine create the copy object in the cache
-            copied_bytes = h3lib.create_object_copy(self._cache_handle, bucket_name, src_object_name, offset, size, dst_object_name, self._user_id)
+            # everything is fine create the copy object in the hot
+            copied_bytes = h3lib.create_object_copy(self._hot_handle, bucket_name, src_object_name, offset, size, dst_object_name, self._user_id)
             
-            # register when the object must be expires from the cache
+            # register when the object must be expires from the hot
             self.__register_object_expiration_time__(bucket_name, dst_object_name)
 
             # update the src_object info
             self.__touch_object_in_cold_storage__(bucket_name, src_object_name)
 
             # take the info
-            info = h3lib.info_object(self._cache_handle, bucket_name, dst_object_name) 
+            info = h3lib.info_object(self._hot_handle, bucket_name, dst_object_name) 
 
             # create a speydo object in the cold storage
             h3lib.create_pseydo_object(self._cold_handle, bucket_name, dst_object_name, info.is_bad, info.read_only,
@@ -473,7 +557,7 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
-        return self.__create_object_in_cache__(h3lib.create_object_from_file, bucket_name, object_name, filename)
+        return self.__create_object_in_hot__(h3lib.create_object_from_file, bucket_name, object_name, filename)
 
     def write_object(self, bucket_name, object_name, data, offset=0):
         """Write to an object.
@@ -489,7 +573,7 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """ 
 
-        return self.__write_data_to_cache__(h3lib.write_object, bucket_name, object_name, data, offset)
+        return self.__write_data_to_hot__(h3lib.write_object, bucket_name, object_name, data, offset)
 
     def write_object_copy(self, bucket_name, src_object_name, src_offset, size, dst_object_name, dst_offset):
         """Write to an object with data from another object.
@@ -509,15 +593,15 @@ class H3Cache(object, metaclass=H3Version):
         :returns: The bytes copied if the call was successful
         """
 
-        if not h3lib.object_exists(self._cache_handle, bucket_name, src_object_name):
+        if not h3lib.object_exists(self._hot_handle, bucket_name, src_object_name):
             # fetch the object from the cold storage
             self.__fetch_data_from_cold__(bucket_name, src_object_name) 
 
-        if not h3lib.object_exists(self._cache_handle, bucket_name, dst_object_name):
+        if not h3lib.object_exists(self._hot_handle, bucket_name, dst_object_name):
             # fetch the object from the cold storage
             self.__fetch_data_from_cold__(bucket_name, dst_object_name) 
             
-        copied_bytes = h3lib.write_object_copy(self._cache_handle, bucket_name, src_object_name, src_offset, size, dst_object_name, dst_offset, self._user_id)
+        copied_bytes = h3lib.write_object_copy(self._hot_handle, bucket_name, src_object_name, src_offset, size, dst_object_name, dst_offset, self._user_id)
         
         # update the src_object info
         self.__touch_object_in_cold_storage__(bucket_name, src_object_name)
@@ -540,7 +624,7 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
-        return self.__write_data_to_cache__(h3lib.write_object_from_file, bucket_name, object_name, filename, offset)
+        return self.__write_data_to_hot__(h3lib.write_object_from_file, bucket_name, object_name, filename, offset)
 
     def read_object(self, bucket_name, object_name, offset=0, size=0):
         """Read from an object.
@@ -559,24 +643,20 @@ class H3Cache(object, metaclass=H3Version):
         done = False
         data = None
 
-        # try to fetch it from the cache
+        # try to fetch it from the hot
         try:
-            data, done = h3lib.read_object(self._cache_handle, bucket_name, object_name, offset, size, self._user_id)
+            data, done = h3lib.read_object(self._hot_handle, bucket_name, object_name, offset, size, self._user_id)
             
             self.__touch_object_in_cold_storage__(bucket_name, object_name)
         
-        # fetch it from the cold to the cache 
+        # fetch it from the cold to the hot 
         except h3lib.NotExistsError:
-            # bring the data form the cold to the cache 
-            self.__fetch_data_from_cold__(bucket_name, object_name, offset)
+            # bring the data form the cold to the hot 
+            self.__fetch_data_from_cold__(bucket_name, object_name)
             
-            data, done = h3lib.read_object(self._cache_handle, bucket_name, object_name, offset, size, self._user_id)
+            data, done = h3lib.read_object(self._hot_handle, bucket_name, object_name, offset, size, self._user_id)
 
             self.__touch_object_in_cold_storage__(bucket_name, object_name)
-        
-        # something went wrong with the cache
-        except (h3lib.FailureError, h3lib.StoreError):
-            data, done = h3lib.read_object(self._cold_handle, bucket_name, object_name, offset, size, self._user_id)
 
         if data is None:
             data = b''
@@ -601,26 +681,21 @@ class H3Cache(object, metaclass=H3Version):
 
         done = False
 
-        # try to fetch it from the cache
+        # try to fetch it from the hot
         try:
-            _, done = h3lib.read_object_to_file(self._cache_handle, bucket_name, object_name, filename, offset, size, self._user_id)
+            _, done = h3lib.read_object_to_file(self._hot_handle, bucket_name, object_name, filename, offset, size, self._user_id)
         
             self.__touch_object_in_cold_storage__(bucket_name, object_name)
 
-        # fetch it from the cold to the cache 
+        # fetch it from the cold to the hot 
         except h3lib.NotExistsError:            
-            # bring the data form the cold to the cache 
-            self.__fetch_data_from_cold__(bucket_name, object_name, offset)
+            # bring the data form the cold to the hot 
+            self.__fetch_data_from_cold__(bucket_name, object_name)
 
-            # then read from the object from the cache
-            _, done = h3lib.read_object_to_file(self._cache_handle, bucket_name, object_name, filename, offset, size, self._user_id)
+            # then read from the object from the hot
+            _, done = h3lib.read_object_to_file(self._hot_handle, bucket_name, object_name, filename, offset, size, self._user_id)
 
             self.__touch_object_in_cold_storage__(bucket_name, object_name)
-
-        # something went wrong with the cache
-        except (h3lib.FailureError, h3lib.StoreError):
-            # read it from the cold storage
-            _, done = h3lib.read_object_to_file(self._cold_handle, bucket_name, object_name, filename, offset, size, self._user_id)
 
         return H3Bytes(done=done)
 
@@ -640,22 +715,22 @@ class H3Cache(object, metaclass=H3Version):
 
         status = None
 
-        # if the object exists in the cache, copy it in the cache
-        if h3lib.object_exists(self._cache_handle, bucket_name, src_object_name):
+        # if the object exists in the hot, copy it in the hot
+        if h3lib.object_exists(self._hot_handle, bucket_name, src_object_name):
 
             if h3lib.object_exists(self._cold_handle, bucket_name, dst_object_name):
                 if not no_overwrite:
-                    status = h3lib.copy_object(self._cache_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
+                    status = h3lib.copy_object(self._hot_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
 
                     # update the dst_object info in the cold storage
                     self.__touch_object_in_cold_storage__(bucket_name, dst_object_name)
                 else:
                     raise h3lib.FailureError
             else:
-                status = h3lib.copy_object(self._cache_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
+                status = h3lib.copy_object(self._hot_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
 
                 # take the info
-                info = h3lib.info_object(self._cache_handle, bucket_name, dst_object_name) 
+                info = h3lib.info_object(self._hot_handle, bucket_name, dst_object_name) 
 
                 # create a speydo object in the cold storage
                 h3lib.create_pseydo_object(self._cold_handle, bucket_name, dst_object_name, info.is_bad, info.read_only,
@@ -663,7 +738,7 @@ class H3Cache(object, metaclass=H3Version):
                                            info.mode, info.uid, info.gid)
 
             if status:
-                # register when the object must be expires from the cache
+                # register when the object must be expires from the hot
                 self.__register_object_expiration_time__(bucket_name, dst_object_name)
 
                 # copy the src object metadata in the cold storage
@@ -677,11 +752,11 @@ class H3Cache(object, metaclass=H3Version):
         # otherwise copy the object in the cold storage  
         status = h3lib.copy_object(self._cold_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
        
-        # maybe we have only the destination object in cache
+        # maybe we have only the destination object in hot
         # delete it because we are going to overwrite it in the cold storage
         try:
             if not no_overwrite:
-                h3lib.delete_object(self._cache_handle, bucket_name, dst_object_name, self._user_id)
+                h3lib.delete_object(self._hot_handle, bucket_name, dst_object_name, self._user_id)
         except h3lib.NotExistsError:
             pass
 
@@ -703,24 +778,24 @@ class H3Cache(object, metaclass=H3Version):
 
         status = None
 
-        # if the object exists in the cache, copy it in the cache
-        if h3lib.object_exists(self._cache_handle, bucket_name, src_object_name):
+        # if the object exists in the hot, copy it in the hot
+        if h3lib.object_exists(self._hot_handle, bucket_name, src_object_name):
             
             if h3lib.object_exists(self._cold_handle, bucket_name, dst_object_name):
                 if not no_overwrite:
                     h3lib.move_object_metadata(self._cold_handle, bucket_name, src_object_name, dst_object_name, self._user_id)
 
-                    status = h3lib.move_object(self._cache_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
+                    status = h3lib.move_object(self._hot_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
 
                     # update the dst_object info in the cold storage
                     self.__touch_object_in_cold_storage__(bucket_name, dst_object_name)
                 else:
                     raise h3lib.ExistsError
             else:
-                status = h3lib.move_object(self._cache_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
+                status = h3lib.move_object(self._hot_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
 
                 # take the info
-                info = h3lib.info_object(self._cache_handle, bucket_name, dst_object_name) 
+                info = h3lib.info_object(self._hot_handle, bucket_name, dst_object_name) 
 
                 # create a speydo object in the cold storage
                 h3lib.create_pseydo_object(self._cold_handle, bucket_name, dst_object_name, info.is_bad, info.read_only,
@@ -730,7 +805,7 @@ class H3Cache(object, metaclass=H3Version):
                 h3lib.move_object_metadata(self._cold_handle, bucket_name, src_object_name, dst_object_name, self._user_id)
 
             if status:
-                # register when the object must be expires from the cache
+                # register when the object must be expires from the hot
                 self.__register_object_expiration_time__(bucket_name, dst_object_name)
                 
                 # delete the object from the cold storage
@@ -744,11 +819,11 @@ class H3Cache(object, metaclass=H3Version):
         # otherwise do it in the cold storage
         status = h3lib.move_object(self._cold_handle, bucket_name, src_object_name, dst_object_name, no_overwrite, self._user_id)
         
-        # maybe we have only the destination object in cache
+        # maybe we have only the destination object in hot
         # delete it because we are going to overwrite it in the cold storage
         try:
             if not no_overwrite:
-                h3lib.delete_object(self._cache_handle, bucket_name, dst_object_name, self._user_id)
+                h3lib.delete_object(self._hot_handle, bucket_name, dst_object_name, self._user_id)
         except h3lib.NotExistsError:
             pass
 
@@ -792,9 +867,9 @@ class H3Cache(object, metaclass=H3Version):
         :returns: ``True`` if the call was successful
         """
 
-        # check if the object must be deleted from the cache too
+        # check if the object must be deleted from the hot too
         try:
-            h3lib.delete_object(self._cache_handle, bucket_name, object_name, self._user_id)
+            h3lib.delete_object(self._hot_handle, bucket_name, object_name, self._user_id)
         except h3lib.NotExistsError:
             pass
 

@@ -82,6 +82,7 @@ The following table outlines in pseudocode how H3 operations are implemented wit
     | ``object_id = <bucket name> + '$' + <object_name>`` (for multipart objects)
     | ``object_part_id = '_' + <UUID> + '#' + <part_number> + ['.' + <subpart_number>]``
     | ``multipart_id = '%' + <UUID>``
+    | ``user_defined_metadata_id = '#' + <bucket_name> + "#" + "<object_name>" + "#" + <metadata_name>``
 
 :Create bucket:
     | ``user_metadata = get(key=user_id)``
@@ -153,6 +154,58 @@ The following table outlines in pseudocode how H3 operations are implemented wit
 :Get object info:
     | ``object_metadata = get(key=sobject_id)``
     | ``if user_id != object_metadata.user_id: abort``
+
+:Create object user's defined metadata:
+    | ``object_metadata = get(key=object_id)``
+    | ``if user_id != object_metadata.user_id: abort``
+    | ``put(key=user_defined_metadata_id, value=user_defined_metadata_value)``
+    | ``update object_metadata timestamps``
+    | ``put(key=object_metadata, value=object_metadata)``
+
+:Read object user's defined metadata:
+    | ``object_metadata = get(key=object_id)``
+    | ``if user_id != object_metadata.user_id: abort``
+    | ``get(key=user_defined_metadata_id)``
+    | ``update object_metadata timestamps``
+    | ``put(key=object_metadata, value=object_metadata)``
+
+:Delete object user's defined metadata:
+    | ``object_metadata = get(key=object_id)``
+    | ``if user_id != object_metadata.user_id: abort``
+    | ``if not exists(key=user_defined_metadata_id): abort``
+    | ``delete(key=user_defined_metadata_id)
+    | ``update object_metadata timestamps``
+    | ``put(key=object_metadata, value=object_metadata)``
+
+:Copy object user's defined metadata:
+    | ``src_object_metadata = get(key=src_object_id)``
+    | ``if user_id != src_object_metadata.user_id: abort``
+    | ``if not exists(key=src_object_id): abort``
+    | ``dst_object_metadata = get(key=dst_object_id)``
+    | ``if user_id != dst_object_metadata.user_id: abort``
+    | ``if not exists(key=dst_object_id): abort``
+    | ``scan(prefix= '#' + bucket_id + '#' + src_object_id)``
+    | ``produce user's defined metadata for the src_object``
+    | As *Read Metadata*
+    | As *Create Metadata*
+    | ``update dst_object_metadata timestamps``
+    | ``put(key=dst_object_id, value=dst_object_metadata)``
+    | ``update src_object_metadata timestamps``
+    | ``put(key=src_object_id, value=src_object_metadata)``
+
+:Move object user's defined metadata:
+    | ``object_metadata = get(key=object_id)``
+    | ``if user_id != object_metadata.user_id: abort``
+    | ``if not exists(key=user_defined_metadata_id): abort``
+    | ``delete all the src_object(key=user_defined_metadata_id)
+    | ``update object_metadata timestamps``
+    | ``put(key=object_metadata, value=object_metadata)``
+
+:List objects with specific user defined metadata:
+    | ``bucket_metadata = get(key=bucket_id)``
+    | ``if user_id != bucket_metadata.user_id: abort``
+    | ``for key in scan(prefix= '#' + bucket_id + '#'): if key.metadata_name == specific_metadata_key put in the new list the key.object_name``
+    | ``return the new list``
 
 :Create multipart:
     | As *Create object*.

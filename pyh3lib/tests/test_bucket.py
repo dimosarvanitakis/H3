@@ -16,6 +16,14 @@ import pytest
 import pyh3lib
 import random
 
+def test_storage_info(h3):
+    info = h3.info_storage()
+
+    assert len(info) == 3
+    assert type(info[0]) == int 
+    assert type(info[1]) == int 
+    assert type(info[2]) == int 
+
 def test_simple(h3):
     """List, create, delete a bucket."""
 

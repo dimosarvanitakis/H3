@@ -20,8 +20,8 @@ import pyh3lib
 
 def ReadOnlyAfter(h3, now):
     """
-    Set's the permissions to read only in all objects that have the ReadOnlyAfter attribute and the time that is specified 
-    in the ReadOnlyAfter plus the time from the last time that the object has been modified exceeds the "now" time. 
+    Set's the permissions to read only in all objects that have the ReadOnlyAfter attribute and the "now" time exceeds
+    the time that is specified in the ReadOnlyAfter plus the time from the last time that the object has been modified.
     
     :param now: the time, now
     :type now: float
@@ -30,15 +30,27 @@ def ReadOnlyAfter(h3, now):
 
     # list all the buckets 
     for h3_bucket in h3.list_buckets():
-        # list all the objects that have the ReadOnlyAfter attribute
-        for h3_object in h3.list_objects_with_metadata(h3_bucket, "ReadOnlyAfter"):
-            # the h3_object contains the object's name
-            h3_object_read_only_secs = struct.unpack('d', h3.read_object_metadata(h3_bucket, h3_object, "ReadOnlyAfter"))
-            h3_object_info = h3.info_object(h3_bucket, h3_object)
+        done   = False
+        offset = 0
+        
+        # list all the objects that have the ExpiresAt attribute
+        while not done:
+            h3_objects = h3.list_objects_with_metadata(h3_bucket, "ReadOnlyAfter", offset)
 
-            # Check if we must change the permissions of the object to read only
-            if (h3_object_info.last_modification + h3_object_read_only_secs[0] >= now):
-                h3.make_object_read_only(h3_bucket, h3_object)
+            for h3_object in h3_objects:
+                # the h3_object contains the object's name
+                read_only_after = h3.read_object_metadata(h3_bucket, h3_object, "ReadOnlyAfter")
+
+                if read_only_after != b'':
+                    h3_object_remove_timestamp = struct.unpack('d', read_only_after)
+                    h3_object_info = h3.info_object(h3_bucket, h3_object)
+
+                    # Check if we must change the permissions of the object to read only
+                    if (h3_object_info.last_modification + h3_object_read_only_secs[0] <= now):
+                        h3.make_object_read_only(h3_bucket, h3_object)
+
+            done    = h3_objects.done
+            offset  = h3_objects.nextOffset
 
 def main(cmd=None):
     parser = argparse.ArgumentParser(description='ExpiresAt Controller')

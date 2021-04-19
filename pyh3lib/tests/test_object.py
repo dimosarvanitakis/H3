@@ -16,6 +16,7 @@ import pytest
 import pyh3lib
 import random
 import os
+import struct
 
 MEGABYTE = 1048576
 
@@ -223,20 +224,20 @@ def test_simple(h3):
     h3.delete_object('b1', 'o4')
 
     # Truncate.
-    # h3.truncate_object('b1', 'o2', MEGABYTE)
+    h3.truncate_object('b1', 'o2', MEGABYTE)
 
-    # object_info = h3.info_object('b1', 'o2')
-    # assert object_info.size == (3 * MEGABYTE)
+    object_info = h3.info_object('b1', 'o2')
+    assert object_info.size == MEGABYTE
 
-    # h3.truncate_object('b1', 'o2', 10 * MEGABYTE)
+    h3.truncate_object('b1', 'o2', 10 * MEGABYTE)
 
-    # object_info = h3.info_object('b1', 'o2')
-    # assert object_info.size == (10 * MEGABYTE)
+    object_info = h3.info_object('b1', 'o2')
+    assert object_info.size == (10 * MEGABYTE)
 
-    # h3.truncate_object('b1', 'o2')
+    h3.truncate_object('b1', 'o2')
 
-    # object_info = h3.info_object('b1', 'o2')
-    # assert object_info.size == 0
+    object_info = h3.info_object('b1', 'o2')
+    assert object_info.size == 0
 
     # Delete second object.
     h3.delete_object('b1', 'o2')
@@ -246,6 +247,62 @@ def test_simple(h3):
     assert h3.delete_bucket('b1') == True
 
     assert h3.list_buckets() == []
+
+def test_copy(h3):
+    """Create, copy an object."""
+
+    count = 100 # More than 10
+
+    assert h3.list_buckets() == []
+
+    assert h3.create_bucket('b1') == True
+
+    assert h3.list_objects('b1') == []
+
+    with open('/dev/urandom', 'rb') as f:
+        data = f.read(3 * MEGABYTE)
+
+    h3.create_object('b1', 'object', data)
+
+    for i in range(count):
+        h3.copy_object('b1', 'object', 'copy%d' % i)
+
+    # Get the list of objects
+    objects = []
+    while True:
+        result = h3.list_objects('b1', offset=len(objects))
+        objects += result
+        if result.done:
+            break
+
+    assert len(objects) == count + 1
+
+    for i in range(count):
+        object_info = h3.info_object('b1', 'copy%d' % i)
+        assert not object_info.is_bad
+        assert object_info.size == (3 * MEGABYTE)
+        assert type(object_info.creation) == float
+        assert type(object_info.last_access) == float
+        assert type(object_info.last_modification) == float
+        assert type(object_info.last_change) == float
+
+        object_data = h3.read_object('b1', 'copy%d' % i)
+        assert object_data == data
+
+    objects = []
+    while True:
+        result = h3.list_objects('b1', offset=len(objects))
+        objects += result
+        if result.done:
+            break
+
+    assert len(objects) == count + 1
+
+    assert h3.purge_bucket('b1') == True
+
+    assert h3.list_objects('b1') == []
+
+    assert h3.delete_bucket('b1') == True
 
 def test_purge(h3):
     """Create many objects. Purge."""
@@ -308,6 +365,86 @@ def test_file(h3):
     assert h3.delete_bucket('b1') == True
 
 def test_empty(h3):
+    """Create and read an empty object."""
+
+    assert h3.list_buckets() == []
+
+    assert h3.create_bucket('b1') == True
+
+    h3.create_object('b1', 'o1', b'')
+    object_info = h3.info_object('b1', 'o1')
+    assert not object_info.is_bad
+    assert object_info.size == 0
+
+    object_data = h3.read_object('b1', 'o1')
+    assert object_data == b''
+
+    h3.delete_object('b1', 'o1')
+
+    assert h3.delete_bucket('b1') == True
+
+def test_metadata_arguments(h3):
+    """Test metadata exceptions"""
+
+    assert h3.list_buckets() == []
+
+    assert h3.create_bucket('b1')
+
+    h3.create_object('b1', 'o1', b'')
+
+    assert h3.create_object_metadata('b1', 'o1', 'ExpireAt', b'')
+    
+    # the metadata name is not string
+    with pytest.raises(TypeError):
+        h3.create_object_metadata('b1', 'o1', None , b'')
+
+    # big metadata name
+    with pytest.raises(pyh3lib.H3NameTooLongError):
+        h3.create_object_metadata('b1', 'o1', 'm' * (h3.METADATA_NAME_SIZE + 3) , b'')    
+
+    # the metadata name is empty
+    with pytest.raises(pyh3lib.H3InvalidArgsError):
+        h3.create_object_metadata('b1', 'o1', '' , b'')
+        
+    # the metadata name contains '#'
+    with pytest.raises(pyh3lib.H3InvalidArgsError):
+        h3.create_object_metadata('b1', 'o1', '#ExpireAt', b'')
+
+    assert h3.purge_bucket('b1')
+
+    assert h3.delete_bucket('b1')
+
+def test_metadata_error(h3):
+    """Test metadata exceptions"""
+
+    assert h3.list_buckets() == []
+
+    assert h3.create_bucket('b1')
+
+    h3.create_object('b1', 'o1', b'')
+
+    assert h3.create_object_metadata('b1', 'o1', 'ExpireAt', b'')
+
+    with pytest.raises(pyh3lib.H3NotExistsError):
+        h3.create_object_metadata('b1', 'o2', 'ExpireAt', b'')
+    
+    with pytest.raises(pyh3lib.H3NotExistsError):
+        h3.delete_object_metadata('b1', 'o1', 'ReadOnlyAfter')
+    
+    with pytest.raises(pyh3lib.H3NotExistsError):
+        h3.read_object_metadata('b1', 'o1', 'ReadOnlyAfter')
+    
+    with pytest.raises(pyh3lib.H3NotExistsError):
+        h3.move_object_metadata('b1', 'o1', 'o2')
+    
+    with pytest.raises(pyh3lib.H3NotExistsError):
+        h3.copy_object_metadata('b1', 'o1', 'o2')
+
+    assert h3.purge_bucket('b1')
+
+    assert h3.delete_bucket('b1')
+
+def test_metadata(h3):
     """Create, search and delete metadata to an empty object."""
     
     assert h3.list_buckets() == []
@@ -316,41 +453,86 @@ def test_empty(h3):
 
     h3.create_object('b1', 'o1', b'')
 
+    h3.create_object('b1', 'o2', b'')
+
     h3.create_object('b1', 'o3', b'')
 
-    assert h3.create_object_metadata('b1', 'o1', 'testmeta', b'')
+    assert h3.create_object_metadata('b1', 'o1', 'ExpireAt', b'')
+    assert h3.create_object_metadata('b1', 'o2', 'ExpireAt', b'')
+    assert h3.create_object_metadata('b1', 'o3', 'ExpireAt', b'')
 
-    assert h3.create_object_metadata('b1', 'o1', 'read_only', (258).to_bytes(4, byteorder='little'))
+    assert h3.read_object_metadata('b1', 'o1', 'ExpireAt') == b''
 
-    assert int.from_bytes(h3.read_object_metadata('b1', 'o1', 'read_only'), byteorder='little') == 258
+    assert h3.create_object_metadata('b1', 'o1', 'ReadOnlyAfter', struct.pack("i", 258))
 
-    h3.copy_object('b1', 'o1', 'o2')
+    assert h3.create_object_metadata('b1', 'o1', 'ExpireAt', struct.pack("i", 259))
 
-    assert h3.create_object_metadata('b1', 'o2', 'testmeta_2', b'')
+    assert struct.unpack('i', h3.read_object_metadata('b1', 'o1', 'ReadOnlyAfter'))[0] == 258
 
-    assert h3.list_objects_with_metadata('b1', 'testmeta_2') == ['o2']
+    assert struct.unpack('i', h3.read_object_metadata('b1', 'o1', 'ExpireAt'))[0] == 259
 
-    assert h3.read_object_metadata('b1', 'o1', 'testmeta') == b''
+    assert set(h3.list_objects_with_metadata('b1', 'ExpireAt')) == set(['o1','o2','o3'])
+
+    assert h3.copy_object('b1', 'o1', 'o2')
+
+    assert struct.unpack('i', h3.read_object_metadata('b1', 'o2', 'ExpireAt'))[0] == 259
+
+    assert set(h3.list_objects_with_metadata('b1', 'ExpireAt')) == set(['o1','o2','o3'])
+
+    assert h3.delete_object_metadata('b1', 'o1', 'ExpireAt')
     
-    assert h3.delete_object_metadata('b1', 'o1', 'testmeta')
+    assert set(h3.list_objects_with_metadata('b1', 'ExpireAt')) == set(['o2','o3'])
+    
+    assert h3.move_object('b1', 'o1', 'o2')
 
-    assert h3.list_objects_with_metadata('b1', 'testmeta') == ['o2']
+    assert h3.move_object('b1', 'o2', 'o4')
 
-    assert h3.list_objects_with_metadata('b1', 'read_only') == ['o1','o2']
+    assert h3.truncate_object('b1', 'o4')
 
-    assert h3.create_object_metadata('b1', 'o3', 'testmeta_3', b'')
+    object_info = h3.info_object('b1', 'o4')
+    assert object_info.size == 0
 
-    h3.move_object('b1', 'o1', 'o3')
+    assert h3.list_objects_with_metadata('b1', 'ReadOnlyAfter') == ['o4']
+    assert h3.list_objects_with_metadata('b1', 'ExpireAt') == ['o3']
 
-    assert h3.list_objects_with_metadata('b1', 'read_only') == ['o2', 'o3']
+    assert h3.delete_object('b1', 'o4')
 
-    assert h3.list_objects_with_metadata('b1', 'testmeta_3') == []
+    assert h3.list_objects_with_metadata('b1', 'ReadOnlyAfter') == []
+    
+    assert h3.purge_bucket('b1')
+    
+    assert h3.list_objects_with_metadata('b1', 'ExpireAt') == []
 
-    with pytest.raises(pyh3lib.H3NotExistsError):
-        h3.delete_object('b1', 'o1')
+    assert h3.delete_bucket('b1')
 
-    h3.delete_object('b1', 'o2')
+def test_list_metadata(h3):
+    """List object metadata."""
 
-    h3.delete_object('b1', 'o3')
+    assert h3.list_buckets() == []
 
-    assert h3.delete_bucket('b1') == True
+    assert h3.create_bucket('b1')
+
+    for i in range(1, 3000):
+        h3.create_object('b1', f'object_with_very_very_large_name_to_test_metadata_{i}', b'')
+
+        if not (i % 2):
+            h3.create_object_metadata('b1', f'object_with_very_very_large_name_to_test_metadata_{i}', 'metadata', b'')
+        else:
+            h3.create_object_metadata('b1', f'object_with_very_very_large_name_to_test_metadata_{i}', 'metadata_1', b'')
+
+    done   = False
+    offset = 0
+    totalObjects = 0
+
+    while not done:
+        objects = h3.list_objects_with_metadata('b1', 'metadata', offset) 
+        offset  = objects.nextOffset
+        done    = objects.done
+
+        totalObjects += len(objects)
+        
+    assert totalObjects == 1499
+
+    h3.purge_bucket('b1')
+
+    assert h3.delete_bucket('b1')

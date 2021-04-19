@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <fcntl.h>
 #include <assert.h>
 #include <ftw.h>
@@ -206,6 +207,22 @@ KV_Status KV_FS_ValidateKey(KV_Key key){
 	return status;
 }
 
+KV_Status KV_FS_StorageInfo(KV_Handle handle, KV_StorageInfo* storageInfo) {
+    KV_Filesystem_Handle* _handle = (KV_Filesystem_Handle*) handle;
+    struct statvfs stats;
+
+    // Take the storage info 
+    if (statvfs(_handle->root, &stats) != 0) {
+        return KV_FAILURE;
+    }
+
+    // pass the storage space to the user
+    storageInfo->totalSpace = stats.f_bsize * stats.f_blocks; 
+    storageInfo->freeSpace  = stats.f_bsize * stats.f_bavail; 
+    storageInfo->usedSpace  = storageInfo->totalSpace - storageInfo->freeSpace;
+
+    return KV_SUCCESS;
+}
 
 KV_Status KV_FS_List(KV_Handle handle, KV_Key prefix, uint8_t nTrim, KV_Key buffer, uint32_t offset, uint32_t* nKeys){
     KV_Filesystem_Handle* storeHandle = (KV_Filesystem_Handle*) handle;
@@ -568,6 +585,7 @@ KV_Operations operationsFilesystem = {
     .init = KV_FS_Init,
     .free = KV_FS_Free,
 	.validate_key = KV_FS_ValidateKey,
+    .storage_info = KV_FS_StorageInfo,
 
     .metadata_read = KV_FS_Read,
     .metadata_write = KV_FS_Write,

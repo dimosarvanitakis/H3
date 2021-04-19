@@ -37,6 +37,25 @@ H3_Status ValidObjectName(KV_Operations* op, char* name){
     return status;
 }
 
+H3_Status ValidMetadataName(KV_Operations* op, char* name) {
+    H3_Status status = H3_SUCCESS;
+
+    if (name) {
+        // Too small/big
+        size_t metadataSize = strnlen(name, H3_METADATA_NAME_SIZE + 1);
+        if (metadataSize > H3_METADATA_NAME_SIZE) {
+            status = H3_NAME_TOO_LONG;
+        }
+
+        // Check for invalid characters
+        else if (metadataSize == 0 || name[0] == '#' || (op->validate_key && op->validate_key(name) != KV_SUCCESS)) {
+        	status = H3_INVALID_ARGS;
+        }
+    }
+
+    return status;
+}
+
 H3_Status ValidPrefix(KV_Operations* op, char* name){
     if(name){
         size_t nameSize = strnlen(name, H3_OBJECT_NAME_SIZE+1);
@@ -293,7 +312,7 @@ KV_Status CopyData(H3_Context* ctx, H3_UserId userId, H3_ObjectId srcObjId, H3_O
     return status;
 }
 
-H3_Status CreateObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName, H3_Name key, void* value, size_t size) {
+H3_Status CreateObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName, H3_Name metadataName, void* data, size_t size) {
     KV_Handle _handle = ctx->handle;
     KV_Operations* op = ctx->operation;
     KV_Status storeStatus;
@@ -306,44 +325,47 @@ H3_Status CreateObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucket
     H3_Status status = H3_FAILURE;
     if ((storeStatus = op->metadata_read(_handle, objId, 0, &objMetaValue, &mSize)) == KV_SUCCESS) {
         H3_ObjectMetadata* objMeta = (H3_ObjectMetadata*)objMetaValue;
-        // User has access, the object is healthy and the offset is reasonable
+
+        // Access the object
         if (GrantObjectAccess(userId, objMeta)) {
 
             H3_ObjectMetadataId objectMetaId;
-        	GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
+        	GetObjectMetadataId(objectMetaId, bucketName, objectName, metadataName);
+            
             //Store it if not exists
-            if ((storeStatus = op->create(_handle, objectMetaId, (KV_Value)value, size)) == KV_SUCCESS) {
+            if ((storeStatus = op->create(_handle, objectMetaId, (KV_Value)data, size)) == KV_SUCCESS) {
                 status = H3_SUCCESS;
             //Otherwise update 
-            } else if(storeStatus == KV_KEY_EXIST) {
-                if ((storeStatus = op->update(_handle, objectMetaId, (KV_Value)value, 0, size)) == KV_SUCCESS) {
+            } else if (storeStatus == KV_KEY_EXIST) {
+                if ((storeStatus = op->update(_handle, objectMetaId, (KV_Value)data, 0, size)) == KV_SUCCESS) {
                     status = H3_SUCCESS;
-                } else {
-                    status = H3_FAILURE;
                 }
-            } else {
-                status = H3_FAILURE;
             }
 
             clock_gettime(CLOCK_REALTIME, &objMeta->lastAccess);
             clock_gettime(CLOCK_REALTIME, &objMeta->lastChange);
-            if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS) {
+            if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS && status == H3_SUCCESS) {
                 status = H3_SUCCESS;
-            } else { 
+            } else if (storeStatus == KV_KEY_NOT_EXIST) { 
+                status = H3_NOT_EXISTS;
+            } else if (storeStatus == KV_KEY_TOO_LONG) { 
+                status = H3_NAME_TOO_LONG;
+            } else {
                 status = H3_FAILURE;
             }
         }
+
         free(objMeta);
-    } else if(storeStatus == KV_KEY_NOT_EXIST) {
-        return H3_NOT_EXISTS;
-    } else { 
-        return H3_FAILURE;
+    } else if (storeStatus == KV_KEY_NOT_EXIST) {
+        status = H3_NOT_EXISTS;
+    } else if(storeStatus == KV_KEY_TOO_LONG) {
+        status = H3_NAME_TOO_LONG;
     }
 
     return status;
 }
 
-H3_Status ReadObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName, H3_Name key, void** value, size_t* size) {
+H3_Status ReadObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName, H3_Name metadataName, void** data, size_t* size) {
     KV_Handle _handle = ctx->handle;
     KV_Operations* op = ctx->operation;
     KV_Status storeStatus;
@@ -351,43 +373,47 @@ H3_Status ReadObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketNa
     H3_ObjectId objId;
     size_t mSize = 0;
 
-    H3_Status status = H3_FAILURE;
     GetObjectId(bucketName, objectName, objId);
+
+    H3_Status status = H3_FAILURE;
     if ((storeStatus = op->metadata_read(_handle, objId, 0, &objMetaValue, &mSize)) == KV_SUCCESS) {
         H3_ObjectMetadata* objMeta = (H3_ObjectMetadata*)objMetaValue;
-        // User has access, the object is healthy and the offset is reasonable
+        
+        // Access the object
         if (GrantObjectAccess(userId, objMeta)) {
-            size_t readSize;
+            
             // We do not reserve memory, the backend will handle it.
             KV_Value metadataValue = NULL;
+            size_t metadataSize    = 0;
 
             H3_ObjectMetadataId objectMetaId;
-        	GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
+        	GetObjectMetadataId(objectMetaId, bucketName, objectName, metadataName);
             
             // Read the metadata value
-            if ((storeStatus = op->read(_handle, objectMetaId, 0, &metadataValue, &readSize)) == KV_SUCCESS) {    
-                *value = (H3_Name)metadataValue;
-                *size  = readSize;
+            if ((storeStatus = op->read(_handle, objectMetaId, 0, &metadataValue, &metadataSize)) == KV_SUCCESS) {    
+                *data = metadataValue;
+                *size = metadataSize;
             
                 status = H3_SUCCESS;
-            } else if (storeStatus == KV_KEY_NOT_EXIST) {
-                status = H3_NOT_EXISTS;
-            } else {
-                status = H3_FAILURE;
             }
 
             clock_gettime(CLOCK_REALTIME, &objMeta->lastAccess);
-            if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS) {
+            if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS && status == H3_SUCCESS) {
                 status = H3_SUCCESS;
-            } else { 
+            } else if (storeStatus == KV_KEY_NOT_EXIST) { 
+                status = H3_NOT_EXISTS;
+            } else if (storeStatus == KV_KEY_TOO_LONG) { 
+                status = H3_NAME_TOO_LONG;
+            } else {
                 status = H3_FAILURE;
             }
         }
+
         free(objMeta);
     } else if (storeStatus == KV_KEY_NOT_EXIST) {
-        return H3_NOT_EXISTS;
-    } else {
-        return H3_FAILURE;
+        status = H3_NOT_EXISTS;
+    } else if(storeStatus == KV_KEY_TOO_LONG) {
+        status = H3_NAME_TOO_LONG;
     }
 
     return status;
@@ -401,129 +427,226 @@ H3_Status DeleteObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucket
     H3_ObjectId objId;
     size_t mSize = 0;
 
-    H3_Status status = H3_FAILURE;
     GetObjectId(bucketName, objectName, objId);
+
+    H3_Status status = H3_FAILURE;
     if ((storeStatus = op->metadata_read(_handle, objId, 0, &objMetaValue, &mSize)) == KV_SUCCESS) {
         H3_ObjectMetadata* objMeta = (H3_ObjectMetadata*)objMetaValue;
-        // User has access, the object is healthy and the offset is reasonable
+        
+        // Access the object
         if (GrantObjectAccess(userId, objMeta)) {
             
             H3_ObjectMetadataId objectMetaId;
         	GetObjectMetadataId(objectMetaId, bucketName, objectName, key);
-            //Delete it iff exists
-            if ((storeStatus = op->exists(_handle, objectMetaId)) == KV_KEY_EXIST) {
-                if ((storeStatus = op->delete(_handle, objectMetaId)) == KV_SUCCESS) {
-                    status = H3_SUCCESS;
-                } else {
-                    status = H3_FAILURE;
-                }
-            } else if (storeStatus == KV_KEY_NOT_EXIST) {
-                status = H3_NOT_EXISTS;
-            } else {
-                status = H3_FAILURE;
-            }
+            
+            // Delete it
+            if ((storeStatus = op->delete(_handle, objectMetaId)) == KV_SUCCESS) 
+                status = H3_SUCCESS;
 
             clock_gettime(CLOCK_REALTIME, &objMeta->lastAccess);
             clock_gettime(CLOCK_REALTIME, &objMeta->lastChange);
-            if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS) {
+            if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS && status == H3_SUCCESS) {
                 status = H3_SUCCESS;
-            } else { 
+            } else if (storeStatus == KV_KEY_NOT_EXIST) { 
+                status = H3_NOT_EXISTS;
+            } else if (storeStatus == KV_KEY_TOO_LONG) { 
+                status = H3_NAME_TOO_LONG;
+            } else {
                 status = H3_FAILURE;
             }
         }
+
         free(objMeta);
     } else if (storeStatus == KV_KEY_NOT_EXIST) {
-        return H3_NOT_EXISTS;
-    } else {
-        return H3_FAILURE;
+        status = H3_NOT_EXISTS;
+    } else if(storeStatus == KV_KEY_TOO_LONG) {
+        status = H3_NAME_TOO_LONG;
     }
 
     return status;
 }
 
 H3_Status PurgeObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name objectName) {
-    H3_Status status = H3_SUCCESS;
     KV_Handle _handle = ctx->handle;
     KV_Operations* op = ctx->operation;
     KV_Status storeStatus;
 
-    H3_ObjectMetadataId prefix;
-    GetObjectMetadataId(prefix, bucketName, objectName, NULL);
-    uint8_t trim = strlen(prefix);
+    KV_Value objMetaValue = NULL;
+    H3_ObjectId objId;
+    size_t mSize = 0;
 
-    KV_Key metadata = calloc(1, KV_LIST_BUFFER_SIZE);    
-    uint32_t nMetadata = 0;
-    
-    // List all the metadata of the object
-    if ((storeStatus = op->list(_handle, prefix, trim, metadata, 0, &nMetadata)) == KV_SUCCESS) {
-        H3_Name current_metadata_name;
-        uint32_t current_metadata_index = 0;
-        size_t current_metadata_len;
-        int metadataNo;
+    GetObjectId(bucketName, objectName, objId);
 
-        for (metadataNo = 0; metadataNo < nMetadata; ++metadataNo) {
-            current_metadata_name = &(metadata[current_metadata_index]);
-            current_metadata_len  = strlen(current_metadata_name);
-            current_metadata_index += current_metadata_len;
-            while (metadata[current_metadata_index] == '\0')
-                current_metadata_index++;
+    H3_Status status = H3_FAILURE;
+    if ((storeStatus = op->metadata_read(_handle, objId, 0, &objMetaValue, &mSize)) == KV_SUCCESS) {
+        H3_ObjectMetadata* objMeta = (H3_ObjectMetadata*)objMetaValue;
+        
+        // Access the object
+        if (GrantObjectAccess(userId, objMeta)) {
+            
+            KV_Key metadata = calloc(1, KV_LIST_BUFFER_SIZE);    
+            uint32_t nMetadata = 0;
+            
+            H3_ObjectMetadataId prefix;
+            GetObjectMetadataId(prefix, bucketName, objectName, NULL);
+            uint8_t trim = strlen(prefix);
+            uint32_t offset = 0;
+            
+            // List all the metadata of the object
+            while ((storeStatus = op->list(_handle, prefix, trim, metadata, offset, &nMetadata)) == KV_CONTINUE || storeStatus == KV_SUCCESS) {
+                
+                // Empty list
+				if (!nMetadata) break;
 
-            if ((status = DeleteObjectMetadata(ctx, userId, bucketName, objectName, current_metadata_name)) != H3_SUCCESS) {
-                return status;
-            } 
+                H3_Name current_metadata_name   = NULL;
+                uint32_t current_metadata_index = 0;
+                size_t current_metadata_len     = 0;
+                int metadataNo;
+
+                for (metadataNo = 0; metadataNo < nMetadata; ++metadataNo) {
+                    current_metadata_name = &(metadata[current_metadata_index]);
+                    current_metadata_len  = strlen(current_metadata_name);
+                    current_metadata_index += current_metadata_len;
+                    while (metadata[current_metadata_index] == '\0')
+                        current_metadata_index++;
+
+                    if (DeleteObjectMetadata(ctx, userId, bucketName, objectName, current_metadata_name) != H3_SUCCESS) break;
+                }
+                
+                // Check for error in deletion
+				if (metadataNo < nMetadata) {
+                    storeStatus = KV_FAILURE;
+					break;
+				}
+
+                offset   += nMetadata;
+                nMetadata = 0;
+            }
+            
+            clock_gettime(CLOCK_REALTIME, &objMeta->lastAccess);
+            if (op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS && storeStatus == KV_SUCCESS) {
+                status = H3_SUCCESS;
+            } else if (storeStatus == KV_KEY_TOO_LONG) {
+                status = H3_NAME_TOO_LONG;
+            } else {
+                status = H3_FAILURE;
+            }
+
+            free(metadata);
         }
 
-    } else if (storeStatus == KV_CONTINUE) {
-        status = H3_CONTINUE;
+        free(objMeta);
+    } else if (storeStatus == KV_KEY_NOT_EXIST) {
+        status = H3_NOT_EXISTS;
+    } else if(storeStatus == KV_KEY_TOO_LONG) {
+        status = H3_NAME_TOO_LONG;
     }
-    free(metadata);
 
     return status;
 }
 
 H3_Status CopyObjectMetadata(H3_Context* ctx, H3_UserId userId, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName) {
-    H3_Status status = H3_SUCCESS;
     KV_Handle _handle = ctx->handle;
     KV_Operations* op = ctx->operation;
     KV_Status storeStatus;
-
-    H3_ObjectMetadataId prefix;
-    GetObjectMetadataId(prefix, bucketName, srcObjectName, NULL);
-    uint8_t trim = strlen(prefix);
-
-    KV_Key metadata = calloc(1, KV_LIST_BUFFER_SIZE);    
-    uint32_t nMetadata = 0;
     
-    // List all the metadata of the object
-    if ((storeStatus = op->list(_handle, prefix, trim, metadata, 0, &nMetadata)) == KV_SUCCESS) {
-        H3_Name current_metadata_name;
-        uint32_t current_metadata_index = 0;
-        size_t current_metadata_len;
-        int metadataNo;
+    KV_Value srcObjMetaValue = NULL;
+    KV_Value dstObjMetaValue = NULL;
+    size_t srcMetaSize = 0;
+    size_t dstMetaSize = 0;
 
-        for (metadataNo = 0; metadataNo < nMetadata; ++metadataNo) {
-            current_metadata_name = &(metadata[current_metadata_index]);
-            current_metadata_len  = strlen(current_metadata_name);
-            current_metadata_index += current_metadata_len;
-            while (metadata[current_metadata_index] == '\0') 
-                current_metadata_index++;
+    H3_ObjectId srcObjId;
+    GetObjectId(bucketName, srcObjectName, srcObjId);
+    H3_ObjectId dstObjId;
+    GetObjectId(bucketName, dstObjectName, dstObjId);
 
-            // Read the src object's metadata value
-            void* srcMetadataValue;
-            size_t srcMetadataValueSize = 0;
-            if ((status = ReadObjectMetadata(ctx, userId, bucketName, srcObjectName, current_metadata_name, &srcMetadataValue, &srcMetadataValueSize)) != H3_SUCCESS) {
-                return status;
+    H3_Status status = H3_FAILURE;
+    if ((storeStatus = op->metadata_read(_handle, srcObjId, 0, &srcObjMetaValue, &srcMetaSize)) == KV_SUCCESS) {
+        H3_ObjectMetadata* srcObjMeta = (H3_ObjectMetadata*)srcObjMetaValue;
+        
+        // Access the source object
+        if (GrantObjectAccess(userId, srcObjMeta)) { 
+            
+            if ((storeStatus = op->metadata_read(_handle, dstObjId, 0, &dstObjMetaValue, &dstMetaSize)) == KV_SUCCESS) {
+                H3_ObjectMetadata* dstObjMeta = (H3_ObjectMetadata*)dstObjMetaValue;
+
+                // Access the destination object
+                if (GrantObjectAccess(userId, dstObjMeta)) { 
+                    
+                    KV_Key metadata = calloc(1, KV_LIST_BUFFER_SIZE);    
+                    uint32_t nMetadata = 0;
+                
+                    H3_ObjectMetadataId prefix;
+                    GetObjectMetadataId(prefix, bucketName, srcObjectName, NULL);
+                    uint8_t trim = strlen(prefix);
+                    uint32_t offset = 0;
+
+                    // List all the metadata of the object
+                    while ((storeStatus = op->list(_handle, prefix, trim, metadata, offset, &nMetadata)) == KV_CONTINUE || storeStatus == KV_SUCCESS) {
+                        
+                        // Empty list
+                        if (!nMetadata) break;
+
+                        H3_Name current_metadata_name   = NULL;
+                        uint32_t current_metadata_index = 0;
+                        size_t current_metadata_len     = 0;
+                        int metadataNo;
+
+                        for (metadataNo = 0; metadataNo < nMetadata; ++metadataNo) {
+                            current_metadata_name = &(metadata[current_metadata_index]);
+                            current_metadata_len  = strlen(current_metadata_name);
+                            current_metadata_index += current_metadata_len;
+                            while (metadata[current_metadata_index] == '\0') 
+                                current_metadata_index++;
+
+                            // Read the src object's metadata value
+                            void* srcMetadataValue;
+                            size_t srcMetadataValueSize = 0;
+                            if (ReadObjectMetadata(ctx, userId, bucketName, srcObjectName, current_metadata_name, &srcMetadataValue, &srcMetadataValueSize) != H3_SUCCESS ||
+                                CreateObjectMetadata(ctx, userId, bucketName, dstObjectName, current_metadata_name, srcMetadataValue, srcMetadataValueSize) != H3_SUCCESS   ) {
+                                    break;
+                            }
+                            free(srcMetadataValue);
+                        }
+
+                        // Check for error in deletion
+                        if (metadataNo < nMetadata) {
+                            storeStatus = KV_FAILURE;
+                            break;
+                        }
+
+                        offset   += nMetadata;
+                        nMetadata = 0;
+                    }
+
+                    clock_gettime(CLOCK_REALTIME, &dstObjMeta->lastAccess);
+                    if (op->metadata_write(_handle, dstObjId, (KV_Value)dstObjMeta, dstMetaSize) == KV_SUCCESS && storeStatus == KV_SUCCESS) {
+                        status = H3_SUCCESS;
+                    }
+                    free(metadata);
+                }
+
+                free(dstObjMeta);
             } 
-            // Create the dst object's metadata
-            if ((status = CreateObjectMetadata(ctx, userId, bucketName, dstObjectName, current_metadata_name, srcMetadataValue, srcMetadataValueSize)) != H3_SUCCESS) {
-                return status;
+
+            clock_gettime(CLOCK_REALTIME, &srcObjMeta->lastAccess);
+            if (op->metadata_write(_handle, srcObjId, (KV_Value)srcObjMeta, srcMetaSize) == KV_SUCCESS && status == H3_SUCCESS) {
+                status = H3_SUCCESS;
+            } else if (storeStatus == KV_KEY_NOT_EXIST) {
+                status = H3_NOT_EXISTS;
+            } else if(storeStatus == KV_KEY_TOO_LONG) {
+                status = H3_NAME_TOO_LONG;
+            } else {
+                status = H3_FAILURE;
             }
-            free(srcMetadataValue);
         }
-    } else if (storeStatus == KV_CONTINUE) {
-        status = H3_CONTINUE;
-    } 
-    free(metadata);
+
+        free(srcObjMeta);
+    } else if (storeStatus == KV_KEY_NOT_EXIST) {
+        status = H3_NOT_EXISTS;
+    } else if(storeStatus == KV_KEY_TOO_LONG) {
+        status = H3_NAME_TOO_LONG;
+    }
 
     return status;
 }
@@ -1521,23 +1644,20 @@ H3_Status DeleteObject(H3_Context* ctx, H3_UserId userId, H3_ObjectId objId, cha
             	objMeta->nParts--;
             }
 
-            H3_Name bucketName = NULL;
-            H3_Name objectName = NULL;
-            GetBucketAndObjectFromId(&bucketName, &objectName, objId);
+            // Delete the object's metadata if is not a truncation case.
+            if (!truncate) {
+                H3_Name bucketName = NULL;
+                H3_Name objectName = NULL;
+                GetBucketAndObjectFromId(&bucketName, &objectName, objId);
 
-            // Also delete the object's metadata
-            if ((status = PurgeObjectMetadata(ctx, userId, bucketName, objectName)) == H3_FAILURE) {
+                if (PurgeObjectMetadata(ctx, userId, bucketName, objectName) != H3_SUCCESS)
+                    storeStatus = KV_FAILURE;
+    
                 if (bucketName)
                     free(bucketName);
                 if (objectName)
-                    free(objectName);    
-                return status;
+                    free(objectName);
             }
-
-            if (bucketName)
-                free(bucketName);
-            if (objectName)
-                free(objectName);
 
             clock_gettime(CLOCK_REALTIME, &objMeta->lastAccess);
             if(objMeta->nParts){
@@ -1545,7 +1665,7 @@ H3_Status DeleteObject(H3_Context* ctx, H3_UserId userId, H3_ObjectId objId, cha
                 op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize);
             }
             else if(( truncate && op->metadata_write(_handle, objId, (KV_Value)objMeta, mSize) == KV_SUCCESS) ||
-                    (!truncate && op->metadata_delete(_handle, objId) == KV_SUCCESS)                                ){
+                    (!truncate && storeStatus == KV_SUCCESS && op->metadata_delete(_handle, objId) == KV_SUCCESS)                                ){
                 status = H3_SUCCESS;
             }
         }
@@ -1805,12 +1925,13 @@ H3_Status MoveObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Na
 
                         switch(policy){
                             case MoveReplace:
-                                if( DeleteObject(ctx, userId, dstObjId, 0)                                    == H3_SUCCESS &&                                   
-                                    H3_CreateDummyObject(handle, token, bucketName, tempObject, value, 0, 0)  == H3_SUCCESS &&
-                                    CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, tempObject)    == H3_SUCCESS && 
-                                    op->metadata_move(_handle, srcObjId, dstObjId)                            == KV_SUCCESS &&
-                                    CopyObjectMetadata(ctx, userId, bucketName, tempObject, dstObjectName)    == H3_SUCCESS &&
-                                    DeleteObject(ctx, userId, tempObjectId, 0)                                == H3_SUCCESS    ){
+                                if( DeleteObject(ctx, userId, dstObjId, 0)                                         == H3_SUCCESS &&                                   
+                                    H3_CreateDummyObject(handle, token, bucketName, tempObject, srcObjMeta, 0, 0)  == H3_SUCCESS &&
+                                    CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, tempObject)         == H3_SUCCESS &&
+                                    PurgeObjectMetadata(ctx, userId, bucketName, srcObjectName)                    == H3_SUCCESS && 
+                                    op->metadata_move(_handle, srcObjId, dstObjId)                                 == KV_SUCCESS &&
+                                    CopyObjectMetadata(ctx, userId, bucketName, tempObject, dstObjectName)         == H3_SUCCESS &&
+                                    DeleteObject(ctx, userId, tempObjectId, 0)                                     == H3_SUCCESS    ) {
                                     status = H3_SUCCESS;
                                 }
                                 break;
@@ -1833,8 +1954,9 @@ H3_Status MoveObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Na
 
                 case KV_KEY_NOT_EXIST:
                     if( policy != MoveExchange                                                                  &&
-                        H3_CreateDummyObject(handle, token, bucketName, tempObject, value, 0, 0)  == H3_SUCCESS &&
-                        CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, tempObject)    == H3_SUCCESS && 
+                        H3_CreateDummyObject(handle, token, bucketName, tempObject, srcObjMeta, 0, 0)  == H3_SUCCESS &&
+                        CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, tempObject)    == H3_SUCCESS &&
+                        PurgeObjectMetadata(ctx, userId, bucketName, srcObjectName)               == H3_SUCCESS &&
                         op->metadata_move(_handle, srcObjId, dstObjId)                            == KV_SUCCESS &&
                         CopyObjectMetadata(ctx, userId, bucketName, tempObject, dstObjectName)    == H3_SUCCESS &&
                         DeleteObject(ctx, userId, tempObjectId, 0)                                == H3_SUCCESS    ) { 
@@ -1846,6 +1968,8 @@ H3_Status MoveObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Na
                     status = H3_FAILURE;
                     break;
             }
+
+            free(tempObject);
         }
         free(srcObjMeta);
     }
@@ -1993,10 +2117,8 @@ H3_Status H3_CopyObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3
                         storeStatus = op->copy(_handle, srcPartId, dstPartId);
                     }
 
-                    // Also copy the object's metadata
-                    if ((status = CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, dstObjectName)) != H3_SUCCESS) {
-                        return status;
-                    }
+                    // Also copy the object's user defined metadata
+                    status = CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, dstObjectName);
 
                     // Update destination metadata
                     clock_gettime(CLOCK_REALTIME, &dstObjMeta->creation);
@@ -2010,8 +2132,10 @@ H3_Status H3_CopyObject(H3_Handle handle, H3_Token token, H3_Name bucketName, H3
                     clock_gettime(CLOCK_REALTIME, &srcObjMeta->lastAccess);
 
                     if( op->metadata_write(_handle, dstObjId, (KV_Value)dstObjMeta, mSize)== KV_SUCCESS &&
-                        op->metadata_write(_handle, srcObjId, (KV_Value)srcObjMeta, mSize)== KV_SUCCESS      ){
-                        status =  H3_SUCCESS;
+                        op->metadata_write(_handle, srcObjId, (KV_Value)srcObjMeta, mSize)== KV_SUCCESS && status == H3_SUCCESS){
+                        status = H3_SUCCESS;
+                    } else {
+                        status = H3_FAILURE;
                     }
                 }
 
@@ -2561,25 +2685,25 @@ H3_Status H3_WriteObjectCopy(H3_Handle handle, H3_Token token, H3_Name bucketNam
 /*! \brief  Create user defined metadata for an object
  *
  * Create a user defined key-value pair that is corresponding to metadata for an object.
- * if the object's metadata(key) exists it will be overwritten.
+ * if the object's metadata(key) exists the data will be overwritten with the new one.
  *
  * @param[in]    handle             An h3lib handle
  * @param[in]    token              Authentication information
  * @param[in]    bucketName         The name of the bucket to host the object
  * @param[in]    objectName         The name of the object to be created
- * @param[in]    key               	The name of the object's metadata to be created
- * @param[in]    value              The value of the object's metadata
+ * @param[in]    metadataName       The name of the object's metadata to be created
+ * @param[in]    data               The data of the object's metadata
  *
  * @result \b H3_SUCCESS            Operation completed successfully
- * @result \b H3_FAILURE            Bucket does not exist or user has no access
- * @result \b H3_NOT_EXISTS         Object does not exists 
+ * @result \b H3_FAILURE            The user has not access in the obejct or something went wrong
+ * @result \b H3_NOT_EXISTS         The object does not exist
  * @result \b H3_INVALID_ARGS       Missing or malformed arguments
- * @result \b H3_NAME_TOO_LONG      Bucket or Object name is longer than H3_BUCKET_NAME_SIZE or H3_OBJECT_NAME_SIZE respectively
+ * @result \b H3_NAME_TOO_LONG      Bucket, Object or Metadata name is longer than H3_BUCKET_NAME_SIZE, H3_OBJECT_NAME_SIZE or H3_METADATA_NAME_SIZE respectively
  *
  */
-H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, void* value, size_t size) {
+H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name metadataName, void* data, size_t size) {
     // We don't care if the size == 0.
-    if (!handle || !token  || !bucketName || !objectName || !key || !value) {
+    if (!handle || !token  || !bucketName || !objectName || !metadataName || !data) {
         return H3_INVALID_ARGS;
     }
 
@@ -2587,17 +2711,19 @@ H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
     H3_Context* ctx = (H3_Context*)handle;
     H3_UserId userId;
 
-    // Validate bucketName & extract userId from token
-    // TODO(dimos): maybe validate the object's metadata name/key
-    if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS || (status = ValidObjectName(ctx->operation, objectName)) != H3_SUCCESS) {
+    // Validate bucketName, objectName and metadataName
+    if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS    || 
+        (status = ValidObjectName(ctx->operation, objectName)) != H3_SUCCESS    || 
+        (status = ValidMetadataName(ctx->operation, metadataName)) != H3_SUCCESS  ) {
         return status;
     }
 
+    // Extract userId from token
     if (!GetUserId(token, userId)) {
         return H3_INVALID_ARGS;
     }
 
-    return CreateObjectMetadata(ctx, userId, bucketName, objectName, key, value, size);
+    return CreateObjectMetadata(ctx, userId, bucketName, objectName, metadataName, data, size);
 }
 
 /*! \brief  Delete an object's specific metadata
@@ -2608,17 +2734,17 @@ H3_Status H3_CreateObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
  * @param[in]    token              Authentication information
  * @param[in]    bucketName         The name of the bucket
  * @param[in]    objectName         The name of the object
- * @param[in]    key                The name of the object's metadata to be deleted
+ * @param[in]    metadataName       The name of the object's metadata to be deleted
  *
  * @result \b H3_SUCCESS            Operation completed successfully
- * @result \b H3_FAILURE            Bucket does not exist or user has no access
- * @result \b H3_NOT_EXISTS         Object or the object's metadata does not exists 
+ * @result \b H3_FAILURE            The user has not access in the obejct or something went wrong
+ * @result \b H3_NOT_EXISTS         The object or the metadata of the object does not exist
  * @result \b H3_INVALID_ARGS       Missing or malformed arguments
- * @result \b H3_NAME_TOO_LONG      Bucket or Object name is longer than H3_BUCKET_NAME_SIZE or H3_OBJECT_NAME_SIZE respectively
+ * @result \b H3_NAME_TOO_LONG      Bucket, Object or Metadata name is longer than H3_BUCKET_NAME_SIZE, H3_OBJECT_NAME_SIZE or H3_METADATA_NAME_SIZE respectively
  *
  */
-H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key) {
-    if (!handle || !token  || !bucketName || !objectName || !key) {
+H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name metadataName) {
+    if (!handle || !token  || !bucketName || !objectName || !metadataName) {
         return H3_INVALID_ARGS;
     }
 
@@ -2626,17 +2752,19 @@ H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
     H3_Context* ctx = (H3_Context*)handle;
     H3_UserId userId;
 
-    // Validate bucketName & extract userId from token
-    // TODO(dimos): maybe validate the object's metadata name/key
-    if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS || (status = ValidObjectName(ctx->operation, objectName)) != H3_SUCCESS) {
+    // Validate bucketName, objectName and metadataName
+    if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS    || 
+        (status = ValidObjectName(ctx->operation, objectName)) != H3_SUCCESS    || 
+        (status = ValidMetadataName(ctx->operation, metadataName)) != H3_SUCCESS  ) {
         return status;
     }
 
+    // Extract userId from token
     if (!GetUserId(token, userId)) {
         return H3_INVALID_ARGS;
     }
 
-    return DeleteObjectMetadata(ctx, userId, bucketName, objectName, key);
+    return DeleteObjectMetadata(ctx, userId, bucketName, objectName, metadataName);
 }
 
 /*! \brief  Retrieve an object's specific metadata
@@ -2647,19 +2775,19 @@ H3_Status H3_DeleteObjectMetadata(H3_Handle handle, H3_Token token, H3_Name buck
  * @param[in]       token           Authentication information
  * @param[in]       bucketName      The name of the bucket
  * @param[in]       objectName      The name of the object
- * @param[in]       key             The name of the object's metadata to be retrived
- * @param[inout]    value           The object's metadata value
+ * @param[in]       metadataName    The name of the object's metadata to be retrived
+ * @param[inout]    data            The object's metadata value
  * @param[inout]    size            The object's metadata value size
  *
  * @result \b H3_SUCCESS            Operation completed successfully
- * @result \b H3_FAILURE            Bucket does not exist or user has no access
- * @result \b H3_NOT_EXISTS         Object or the object's metadata does not exists 
+ * @result \b H3_FAILURE            The user has not access in the obejct or something went wrong
+ * @result \b H3_NOT_EXISTS         The object or the metadata of the object does not exist
  * @result \b H3_INVALID_ARGS       Missing or malformed arguments
- * @result \b H3_NAME_TOO_LONG      Bucket or Object name is longer than H3_BUCKET_NAME_SIZE or H3_OBJECT_NAME_SIZE respectively
+ * @result \b H3_NAME_TOO_LONG      Bucket, Object or Metadata name is longer than H3_BUCKET_NAME_SIZE, H3_OBJECT_NAME_SIZE or H3_METADATA_NAME_SIZE respectively
  *
  */
-H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name key, void** value, size_t* size){
-    if (!handle || !token  || !bucketName || !objectName || !key) {
+H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name objectName, H3_Name metadataName, void** data, size_t* size){
+    if (!handle || !token  || !bucketName || !objectName || !metadataName) {
         return H3_INVALID_ARGS;
     }
 
@@ -2667,20 +2795,22 @@ H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucket
     H3_Context* ctx = (H3_Context*)handle;
     H3_UserId userId;
 
-    // Validate bucketName & extract userId from token
-    // TODO(dimos): maybe validate the object's metadata name/key
-    if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS || (status = ValidObjectName(ctx->operation, objectName)) != H3_SUCCESS) {
+    // Validate bucketName, objectName and metadataName
+    if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS    || 
+        (status = ValidObjectName(ctx->operation, objectName)) != H3_SUCCESS    || 
+        (status = ValidMetadataName(ctx->operation, metadataName)) != H3_SUCCESS  ) {
         return status;
     }
 
+    // Extract userId from token
     if (!GetUserId(token, userId)) {
         return H3_INVALID_ARGS;
     }
 
-    return ReadObjectMetadata(ctx, userId, bucketName, objectName, key, value, size);
+    return ReadObjectMetadata(ctx, userId, bucketName, objectName, metadataName, data, size);
 }
 
-/*! \brief Copy the metadata from one object to onother
+/*! \brief Copy the metadata from one object to another
  *
  * @param[in]     handle            An h3lib handle
  * @param[in]     token             Authentication information
@@ -2688,12 +2818,11 @@ H3_Status H3_ReadObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucket
  * @param[in]     srcObjectName     Source object 
  * @param[in]     dstObjectName     Destination object
  *
- * @result \b H3_SUCCESS            Operation completed successfully (no more matching names exist)
- * @result \b H3_CONTINUE           Operation completed successfully (there could be more matching names)
- * @result \b H3_FAILURE            Unable to access bucket or user has no access
- * @result \b H3_NOT_EXISTS         Bucket does not exist
+ * @result \b H3_SUCCESS            Operation completed successfully
+ * @result \b H3_FAILURE            The user has not access in one(or both) of the obejcts or something went wrong
+ * @result \b H3_NOT_EXISTS         One(or both) of the objects does not exist
  * @result \b H3_INVALID_ARGS       Missing or malformed arguments
- * @result \b H3_NAME_TOO_LONG      Bucket or Object name is longer than H3_BUCKET_NAME_SIZE or H3_OBJECT_NAME_SIZE respectively
+ * @result \b H3_NAME_TOO_LONG      Bucket, Object or Metadata name is longer than H3_BUCKET_NAME_SIZE, H3_OBJECT_NAME_SIZE or H3_METADATA_NAME_SIZE respectively
  *
  */
 H3_Status H3_CopyObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName) {
@@ -2705,13 +2834,14 @@ H3_Status H3_CopyObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucket
     H3_Context* ctx = (H3_Context*)handle;
     H3_UserId userId;
 
-    // Validate bucketName & extract userId from token
+    // Validate bucketName, srcObjectName, dstObjectName
     if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS 	||
     	(status = ValidObjectName(ctx->operation, srcObjectName)) != H3_SUCCESS ||
-		(status = ValidObjectName(ctx->operation, dstObjectName)) != H3_SUCCESS) {
+		(status = ValidObjectName(ctx->operation, dstObjectName)) != H3_SUCCESS   ) {
         return status;
     }
 
+    // Extract userId from token
     if (!GetUserId(token, userId)) {
         return H3_INVALID_ARGS;
     }
@@ -2719,6 +2849,25 @@ H3_Status H3_CopyObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucket
     return CopyObjectMetadata(ctx, userId, bucketName, srcObjectName, dstObjectName);
 }
 
+
+/*! \brief Move the metadata from one object to another
+ * 
+ * The metadata of the source object will be moved in the destination object. Note that the metadata of
+ * the destination object will be deleted in order to be replaced with the metadata of the source object. 
+ *
+ * @param[in]     handle            An h3lib handle
+ * @param[in]     token             Authentication information
+ * @param[in]     bucketName        The name of the bucket
+ * @param[in]     srcObjectName     Source object 
+ * @param[in]     dstObjectName     Destination object
+ *
+ * @result \b H3_SUCCESS            Operation completed successfully
+ * @result \b H3_FAILURE            The user has not access in one(or both) of the obejcts or something went wrong
+ * @result \b H3_NOT_EXISTS         One(or both) of the objects does not exist
+ * @result \b H3_INVALID_ARGS       Missing or malformed arguments
+ * @result \b H3_NAME_TOO_LONG      Bucket, Object or Metadata name is longer than H3_BUCKET_NAME_SIZE, H3_OBJECT_NAME_SIZE or H3_METADATA_NAME_SIZE respectively
+ *
+ */
 H3_Status H3_MoveObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name srcObjectName, H3_Name dstObjectName) {
     if (!handle || !token  || !bucketName || !srcObjectName || !dstObjectName) {
         return H3_INVALID_ARGS;
@@ -2728,13 +2877,14 @@ H3_Status H3_MoveObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucket
     H3_Context* ctx = (H3_Context*)handle;
     H3_UserId userId;
 
-    // Validate bucketName & extract userId from token
+    // Validate bucketName, srcObjectName, dstObjectName
     if ((status = ValidBucketName(ctx->operation, bucketName)) != H3_SUCCESS 	||
     	(status = ValidObjectName(ctx->operation, srcObjectName)) != H3_SUCCESS ||
-		(status = ValidObjectName(ctx->operation, dstObjectName)) != H3_SUCCESS) {
+		(status = ValidObjectName(ctx->operation, dstObjectName)) != H3_SUCCESS   ) {
         return status;
     }
 
+    // Extract userId from token
     if (!GetUserId(token, userId)) {
         return H3_INVALID_ARGS;
     }
@@ -2760,19 +2910,21 @@ H3_Status H3_MoveObjectMetadata(H3_Handle handle, H3_Token token, H3_Name bucket
  * @param[in]     token              Authentication information
  * @param[in]     bucketName         The name of the bucket
  * @param[in]     key                The metadata key
- * @param[out]    objectNameArray    Pointer to a C string buffer
+ * @param[in]     offset             The number of matching names to skip
+ * @param[inout]  objectNameArray    Pointer to a C string buffer
  * @param[inout]  nObjects           Number of names in buffer
+ * @param[inout]  nextOffset         The number of matching names to skip in the next iteration in case of a H3_CONTINUE signal
  *
  * @result \b H3_SUCCESS            Operation completed successfully (no more matching names exist)
  * @result \b H3_CONTINUE           Operation completed successfully (there could be more matching names)
- * @result \b H3_FAILURE            Unable to access bucket or user has no access
+ * @result \b H3_FAILURE            Unable to access bucket
  * @result \b H3_NOT_EXISTS         Bucket does not exist
  * @result \b H3_INVALID_ARGS       Missing or malformed arguments
- * @result \b H3_NAME_TOO_LONG      Bucket or Object name is longer than H3_BUCKET_NAME_SIZE or H3_OBJECT_NAME_SIZE respectively
+ * @result \b H3_NAME_TOO_LONG      Bucket name is longer than H3_BUCKET_NAME_SIZE
  *
  */
-H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name key, H3_Name* objectNameArray, uint32_t* nObjects) {
-    if (!handle || !token  || !bucketName || !key || !objectNameArray || !nObjects) {
+H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name bucketName, H3_Name metadataName, uint32_t offset, H3_Name* objectNameArray, uint32_t* nObjects, uint32_t *nextOffset) {
+    if (!handle || !token  || !bucketName || !metadataName || !objectNameArray || !nObjects) {
         return H3_INVALID_ARGS;
     }
 
@@ -2783,74 +2935,114 @@ H3_Status H3_ListObjectsWithMetadata(H3_Handle handle, H3_Token token, H3_Name b
 
     H3_BucketId bucketId;
     H3_UserId userId;
-    H3_ObjectMetadataId objectMetaId;
     KV_Status storeStatus;
     KV_Value value = NULL;
     size_t mSize = 0;
 
-    // Validate bucketName & extract userId from token
-    if ((status = ValidBucketName(op, bucketName)) != H3_SUCCESS) {
+    // Validate bucketName and metadataName
+    if ((status = ValidBucketName(op, bucketName)) != H3_SUCCESS    ||
+        (status = ValidMetadataName(op, metadataName)) != H3_SUCCESS  ) {
         return status;
     }
 
+    // Extract userId from token and the bucketId from the bucketName
     if (!GetUserId(token, userId) || !GetBucketId(bucketName, bucketId)) {
         return H3_INVALID_ARGS;
     }
        
     status = H3_FAILURE;
-    if( (storeStatus = op->metadata_read(_handle, bucketId, 0, &value, &mSize)) == KV_SUCCESS){
-
+    if ((storeStatus = op->metadata_read(_handle, bucketId, 0, &value, &mSize)) == KV_SUCCESS) {
         H3_BucketMetadata* bucketMetadata = (H3_BucketMetadata*)value;
+
         if (GrantBucketAccess(userId, bucketMetadata)) {
 
-            KV_Key keyBuffer = calloc(1, KV_LIST_BUFFER_SIZE);
-            if (keyBuffer) {
-                memset(keyBuffer, 0, KV_LIST_BUFFER_SIZE);
+            KV_Key metadata = calloc(1, KV_LIST_BUFFER_SIZE);
+            KV_Key objects  = calloc(1, KV_LIST_BUFFER_SIZE);
 
-                H3_Name objects;
-                uint32_t listedObjects;
-                uint32_t offset = 0;
-                size_t remaining = KV_LIST_BUFFER_SIZE;
-                uint32_t addedObjects = 0;
-                uint32_t bufferIsFull = FALSE;
+            if (metadata && objects) {
 
-                while (((status = H3_ListObjects(handle, token, bucketName, NULL, offset, &objects, &listedObjects)) == H3_CONTINUE || 
-                        (status == H3_SUCCESS && listedObjects)) && !bufferIsFull) {
-                    H3_Name  current_object_name;
-                    uint32_t object;
-                    uint32_t current_objects_index = 0;
-                    size_t  current_object_len;
-                    for (object = 0; object < listedObjects; ++object) {
-                        current_object_name = &(objects[current_objects_index]);
-                        current_object_len  = strlen(current_object_name);
-                        current_objects_index += current_object_len;
-                        while (objects[current_objects_index] == '\0')
-                            current_objects_index++;
-                        
-                        GetObjectMetadataId(objectMetaId, bucketName, current_object_name, key);
+                H3_ObjectMetadataId prefix;
+                GetObjectMetadataId(prefix, bucketName, NULL, NULL);
+                uint8_t trim = strlen(prefix);  
+    
+                size_t remaining       = KV_LIST_BUFFER_SIZE;
+                uint32_t nMetadata     = 0;
+                uint32_t addedObjects  = 0;
+                uint32_t skipedObjects = 0;
+                uint32_t list_offset   = offset;
+                uint32_t bufferIsFull  = FALSE;
+                
+                // List all the metadata in the current bucket
+                while (!bufferIsFull && ((storeStatus = op->list(_handle, prefix, trim, metadata, list_offset, &nMetadata)) == KV_CONTINUE || 
+                        storeStatus == KV_SUCCESS)) {
+                    
+                    // We get an empty list. It's ok.
+                    if(!nMetadata) break;
 
-                        if ((storeStatus = op->exists(_handle, objectMetaId)) == KV_KEY_EXIST) {  
-                            // The buffer have space to host the current object
-                            if (remaining >= (current_object_len + 1)) {
-                                // We copy and the null terminator character 
-                                memcpy(&keyBuffer[KV_LIST_BUFFER_SIZE - remaining], current_object_name, current_object_len + 1);
-                                remaining -= (current_object_len + 1);
-                                addedObjects++;
-                            // The buffer is full. Notify the user with a H3_CONTINUE
+                    H3_Name current_object_name;
+                    H3_Name hashtag_index;
+                    uint32_t current_object_index = 0;
+                    size_t current_object_len;
+                    int metadataNo;
+
+                    for (metadataNo = 0; metadataNo < nMetadata; ++metadataNo) {
+                        current_object_name   = &(metadata[current_object_index]);
+                        current_object_index += strlen(current_object_name);
+                        while (metadata[current_object_index] == '\0') 
+                            current_object_index++;
+
+                        // search for the hashtag character (# = ascii 35)
+                        hashtag_index = NULL;
+                        if ((hashtag_index = strchr(current_object_name, 35))) {
+                            // Increase the hashtag index to overpass the hashtag symbol
+                            // inorder to take the meatadata key
+                            ++hashtag_index;
+
+                            // We found the metadata that we are looking for.
+                            if (!strcmp(metadataName, hashtag_index)) {
+                                // Decrease the hashtag index to go back to hashtag symbol 
+                                --hashtag_index;
+                                // Take the objects length
+                                current_object_len = (size_t)(hashtag_index - current_object_name);
+
+                                // The buffer have space to host the current object
+                                if (remaining >= (current_object_len + 1)) {
+                                    // We copy and the null terminator character 
+                                    memcpy(&objects[KV_LIST_BUFFER_SIZE - remaining], current_object_name, current_object_len);
+                                    remaining -= (current_object_len + 1);
+
+                                    ++addedObjects;
+                                // The buffer is full. Notify the user with a H3_CONTINUE
+                                } else {
+                                    bufferIsFull = TRUE; break;
+                                }
                             } else {
-                                bufferIsFull = TRUE; break;
+                                ++skipedObjects;
                             }
-                        }
+                        }                
                     }
-                    offset += listedObjects;
-                    free(objects); 
-                }
-                *objectNameArray = keyBuffer;
-                *nObjects = addedObjects;   
 
-                status = (bufferIsFull) ? H3_CONTINUE : H3_SUCCESS;  
+                    list_offset += nMetadata;
+                    nMetadata    = 0;
+                }
+
+                // The list failed
+                if (storeStatus != KV_SUCCESS && storeStatus != KV_CONTINUE)
+                    free(objects);
+                else {
+                    *objectNameArray = objects;
+                    *nObjects        = addedObjects;
+                    // if next offset is presented
+                    if (nextOffset)
+                        *nextOffset = (skipedObjects + addedObjects + offset);
+
+                    status = (bufferIsFull) ? H3_CONTINUE : H3_SUCCESS;
+                }
             }
+
+            free(metadata);
         }
+
         free(bucketMetadata);
     } else if (storeStatus == KV_KEY_NOT_EXIST) {
         return H3_NOT_EXISTS;
